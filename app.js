@@ -11,7 +11,7 @@ const app = express();
 
 // ✅ Enable CORS and cookies
 app.use(cors({
-  origin: ["http://localhost:3000"],
+  origin: ["http://localhost:3000", "https://taskmatch-five.vercel.app/"],
   credentials: true,
 }));
 
