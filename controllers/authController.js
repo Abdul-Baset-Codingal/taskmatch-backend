@@ -27,18 +27,16 @@ export const signup = async (req, res) => {
         // Set secure cookie
         res.cookie("token", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production", // ✅ true on Render
-            sameSite: "Lax",
-            path: "/",
+            secure: true,// ✅ true on Render
+            sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         // Optional: for UI state
         res.cookie("isLoggedIn", "true", {
             httpOnly: false,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "Lax",
-            path: "/",
+            secure: true,// ✅ true on Render
+            sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
@@ -70,17 +68,15 @@ export const login = async (req, res) => {
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "Lax",
-            path: "/",
+            secure: true,// ✅ true on Render
+            sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         res.cookie("isLoggedIn", "true", {
             httpOnly: false,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "Lax",
-            path: "/",
+            secure: true,// ✅ true on Render
+            sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
