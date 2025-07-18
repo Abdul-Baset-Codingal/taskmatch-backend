@@ -2,6 +2,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 
+const isProduction = process.env.NODE_ENV === "production";
+
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
@@ -13,29 +15,32 @@ export const signup = async (req, res) => {
     try {
         const { fullName, email, phone, province, password, role } = req.body;
 
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: "Email already in use" });
+        }
+
         const newUser = await User.create({
             fullName,
             email,
             phone,
             province,
-            password, // 🔒 ensure password hashing is in model
+            password, // Ensure password is hashed in User model
             role,
         });
 
         const token = generateToken(newUser._id);
 
-        // Set secure cookie
         res.cookie("token", token, {
             httpOnly: true,
-            secure: true,// ✅ true on Render
+            secure: isProduction,
             sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
-        // Optional: for UI state
         res.cookie("isLoggedIn", "true", {
             httpOnly: false,
-            secure: true,// ✅ true on Render
+            secure: isProduction,
             sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
@@ -68,14 +73,14 @@ export const login = async (req, res) => {
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: true,// ✅ true on Render
+            secure: isProduction,
             sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         res.cookie("isLoggedIn", "true", {
             httpOnly: false,
-            secure: true,// ✅ true on Render
+            secure: isProduction,
             sameSite: "none",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
@@ -95,15 +100,15 @@ export const login = async (req, res) => {
 export const logout = async (req, res) => {
     res.clearCookie("token", {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Lax",
+        secure: isProduction,
+        sameSite: "none",
         path: "/",
     });
 
     res.clearCookie("isLoggedIn", {
         httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Lax",
+        secure: isProduction,
+        sameSite: "none",
         path: "/",
     });
 
