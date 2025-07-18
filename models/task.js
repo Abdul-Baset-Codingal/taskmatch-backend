@@ -14,7 +14,7 @@ const TaskSchema = new mongoose.Schema(
     video: { type: String },
     schedule: {
       type: String,
-      enum: ["Today", "Tomorrow", "Urgent"],
+      enum: ["Today", "Schedule", "Urgent"],
       required: true,
     },
     extraCharge: { type: Boolean, default: false },
