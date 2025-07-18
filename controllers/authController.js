@@ -9,7 +9,7 @@ const cookieOptions = {
     secure: true,
     sameSite: "none",
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    // Remove path: "/" - let browser set it automatically
+    path: "/", // ✅ add this back
 };
 
 const generateToken = (id) => {
