@@ -16,6 +16,8 @@ export const createTask = async (req, res) => {
             offerDeadline
         } = req.body;
 
+        console.log(req.body)
+
         const photos = req.files?.photos?.map((file) => file.filename) || [];
         const video = req.files?.video?.[0]?.filename || null;
 
