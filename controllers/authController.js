@@ -6,10 +6,12 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const cookieOptions = {
     httpOnly: true,
-    secure: isProduction,                           // true only in production
-    sameSite: isProduction ? "none" : "lax", 
-    maxAge: 7 * 24 * 60 * 60 * 1000
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    domain: isProduction ? "taskmatch-five.vercel.app" : undefined,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
 };
+
 
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
