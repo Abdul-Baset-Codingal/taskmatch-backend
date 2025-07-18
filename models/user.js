@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import bcrypt from "bcrypt";
 
 const serviceSchema = new mongoose.Schema({
   title: String,
@@ -58,8 +59,23 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// 🔐 Pre-save hook to hash password
+userSchema.pre("save", async function (next) {
+  // Only hash if password is modified or new
+  if (!this.isModified("password")) return next();
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Optional: Method to compare passwords
+userSchema.methods.comparePassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
 export default mongoose.models.User || mongoose.model("User", userSchema);
-
-
-
-
