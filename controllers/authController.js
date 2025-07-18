@@ -4,6 +4,14 @@ import User from "../models/user.js";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+const cookieOptions = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: "none",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: "/",
+};
+
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
@@ -25,32 +33,25 @@ export const signup = async (req, res) => {
             email,
             phone,
             province,
-            password, // Ensure password is hashed in User model
+            password, // Assumes pre-save middleware in User model hashes this
             role,
         });
 
         const token = generateToken(newUser._id);
 
-        res.cookie("token", token, {
-            httpOnly: true,
-            secure: isProduction,
-            sameSite: "none",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-
+        res.cookie("token", token, { ...cookieOptions });
         res.cookie("isLoggedIn", "true", {
+            ...cookieOptions,
             httpOnly: false,
-            secure: isProduction,
-            sameSite: "none",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         res.status(201).json({
             message: "User created successfully",
             user: {
                 id: newUser._id,
-                email: newUser.email,
                 fullName: newUser.fullName,
+                email: newUser.email,
+                role: newUser.role,
             },
         });
     } catch (err) {
@@ -60,57 +61,51 @@ export const signup = async (req, res) => {
 
 // ==== LOGIN ====
 export const login = async (req, res) => {
-    const { email, password } = req.body;
-
     try {
+        const { email, password } = req.body;
+
         const user = await User.findOne({ email });
         if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(401).json({ message: "Wrong password" });
+        if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
 
         const token = generateToken(user._id);
 
-        res.cookie("token", token, {
-            httpOnly: true,
-            secure: isProduction,
-            sameSite: "none",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-
+        res.cookie("token", token, { ...cookieOptions });
         res.cookie("isLoggedIn", "true", {
+            ...cookieOptions,
             httpOnly: false,
-            secure: isProduction,
-            sameSite: "none",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         res.status(200).json({
-            _id: user._id,
-            fullName: user.fullName,
-            email: user.email,
-            role: user.role,
+            message: "Login successful",
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+            },
         });
-    } catch (error) {
-        res.status(500).json({ message: "Login failed", error: error.message });
+    } catch (err) {
+        res.status(500).json({ message: "Login failed", error: err.message });
     }
 };
 
 // ==== LOGOUT ====
 export const logout = async (req, res) => {
-    res.clearCookie("token", {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: "none",
-        path: "/",
-    });
+    try {
+        res.clearCookie("token", {
+            ...cookieOptions,
+        });
 
-    res.clearCookie("isLoggedIn", {
-        httpOnly: false,
-        secure: isProduction,
-        sameSite: "none",
-        path: "/",
-    });
+        res.clearCookie("isLoggedIn", {
+            ...cookieOptions,
+            httpOnly: false,
+        });
 
-    res.status(200).json({ message: "Logged out successfully" });
+        res.status(200).json({ message: "Logged out successfully" });
+    } catch (err) {
+        res.status(500).json({ message: "Logout failed", error: err.message });
+    }
 };
