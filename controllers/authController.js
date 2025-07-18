@@ -52,6 +52,7 @@ export const signup = async (req, res) => {
                 fullName: newUser.fullName,
                 email: newUser.email,
                 role: newUser.role,
+                token: token,
             },
         });
     } catch (err) {
