@@ -24,10 +24,10 @@ import verifyToken from "../middlewares/verifyToken.js";
 const router = express.Router();
 
 // 🔧 Ensure uploads folder exists
-const uploadPath = path.join("uploads");
-if (!fs.existsSync(uploadPath)) {
-  fs.mkdirSync(uploadPath, { recursive: true });
-}
+// const uploadPath = path.join("uploads");
+// if (!fs.existsSync(uploadPath)) {
+//   fs.mkdirSync(uploadPath, { recursive: true });
+// }
 
 // 📦 Multer config
 const storage = multer.diskStorage({
