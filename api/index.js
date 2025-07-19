@@ -31,8 +31,13 @@ async function connectToDatabase() {
     }
 }
 
-// Connect to database
-await connectToDatabase();
-
-// Export serverless handler
-export default serverless(app);
+// Export handler - no top-level await
+export default async (req, res) => {
+    try {
+        await connectToDatabase();
+        return serverless(app)(req, res);
+    } catch (error) {
+        console.error("Function error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+};
