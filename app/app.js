@@ -2,10 +2,10 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser"; // ✅ Add this
 
-import serviceRoutes from "./routes/serviceRoutes.js";
-import taskRoutes from "./routes/taskRoutes.js";
-import authRoutes from "./routes/authRoutes.js";
-import bookingRoutes from "./routes/bookingRoutes.js";
+import serviceRoutes from "../routes/serviceRoutes.js"
+import taskRoutes from "../routes/taskRoutes.js";
+import authRoutes from "../routes/authRoutes.js";
+import bookingRoutes from "../routes/bookingRoutes.js";
 
 const app = express();
 
