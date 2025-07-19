@@ -109,3 +109,70 @@ export const logout = async (req, res) => {
         res.status(500).json({ message: "Logout failed", error: err.message });
     }
 };
+
+
+export const getAllUsers = async (req, res) => {
+    try {
+        const { page = 1, limit = 10, search, role, province } = req.query;
+
+        // Build filter object
+        const filter = {};
+        if (search) {
+            filter.$or = [
+                { fullName: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
+        }
+        if (role) filter.role = role;
+        if (province) filter.province = province;
+
+        const skip = (page - 1) * limit;
+
+        const users = await User.find(filter)
+            .select('-password') // Exclude password field
+            .limit(parseInt(limit))
+            .skip(skip)
+            .sort({ createdAt: -1 });
+
+        const totalUsers = await User.countDocuments(filter);
+        const totalPages = Math.ceil(totalUsers / limit);
+
+        res.status(200).json({
+            message: "Users retrieved successfully",
+            users,
+            pagination: {
+                currentPage: parseInt(page),
+                totalPages,
+                totalUsers,
+                hasNext: page < totalPages,
+                hasPrev: page > 1
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Failed to retrieve users", error: err.message });
+    }
+};
+
+
+// ==== DELETE USER ====
+export const deleteUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const deletedUser = await User.findByIdAndDelete(id);
+        if (!deletedUser) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({
+            message: "User deleted successfully",
+            deletedUser: {
+                id: deletedUser._id,
+                fullName: deletedUser.fullName,
+                email: deletedUser.email
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Failed to delete user", error: err.message });
+    }
+};
