@@ -1,11 +1,17 @@
 import mongoose from "mongoose";
-import dotenv from "dotenv";
-dotenv.config(); // 👈 IMPORTANT
 
 const connectToDatabase = async () => {
     try {
-        const uri = process.env.MONGODB_URI; // 👈 This must not be undefined
-        if (!uri) throw new Error("MongoDB URI is not defined in environment variables");
+        // Check if already connected
+        if (mongoose.connections[0].readyState) {
+            console.log("Already connected to MongoDB");
+            return;
+        }
+
+        const uri = process.env.MONGODB_URI;
+        if (!uri) {
+            throw new Error("MongoDB URI is not defined in environment variables");
+        }
 
         await mongoose.connect(uri, {
             useNewUrlParser: true,
@@ -15,7 +21,7 @@ const connectToDatabase = async () => {
         console.log("MongoDB connected successfully");
     } catch (err) {
         console.error("MongoDB connection error:", err);
-        process.exit(1);
+        throw err; // ❌ Don't use process.exit(1) in serverless
     }
 };
 
