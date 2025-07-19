@@ -2,10 +2,10 @@
   "name": "taskmatch-backend",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node api/index.js",
-    "dev": "nodemon api/index.js",
+    "start": "node api/server.js",
+    "dev": "nodemon api/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -21,9 +21,13 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.0",
-    "multer": "^2.0.1"
+    "multer": "^2.0.1",
+    "serverless-http": "^3.2.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
