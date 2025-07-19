@@ -1,21 +1,16 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import serverless from "serverless-http";
 import app from "./app.js";
 import connectToDatabase from "./db.js";
 
-const mongoUri = process.env.MONGODB_URI;
+let isConnected = false;
 
-let isDbConnected = false;
-
-async function init() {
-    if (!isDbConnected) {
-        await connectToDatabase(mongoUri);
-        isDbConnected = true;
+async function initialize() {
+    if (!isConnected) {
+        await connectToDatabase(process.env.MONGODB_URI);
+        isConnected = true;
     }
 }
 
-await init();
+await initialize();
 
 export const handler = serverless(app);
