@@ -1,39 +1,48 @@
+// taskRoutes.js
 import express from "express";
 import multer from "multer";
-import fs from "fs";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
 import {
   createTask,
   addBidToTask,
   acceptTaskByTasker,
   getAllTasks,
   getTaskById,
+  getTaskFilters,
   getUrgentTasksByStatus,
   getTasksByClient,
   requestCompletionByTasker,
   getTasksByStatus,
   getTasksExcludingStatus,
   replyToComment,
-  updateTaskStatusByClient, 
+  updateTaskStatusByClient,
   addCommentToTask,
   updateTask,
   deleteTask,
+  deleteTaskAdnmin,
+  bulkDeleteTasks,
 } from "../controllers/taskController.js";
 import verifyToken from "../middlewares/verifyToken.js";
 
 const router = express.Router();
 
-// 🔧 Ensure uploads folder exists
-// const uploadPath = path.join("uploads");
-// if (!fs.existsSync(uploadPath)) {
-//   fs.mkdirSync(uploadPath, { recursive: true });
-// }
-
-// 📦 Multer config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+// ✅ Cloudinary Config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// ✅ Cloudinary Storage Setup
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "taskmatch_uploads",
+    allowed_formats: ["jpg", "jpeg", "png", "gif", "mp4", "mov", "avi"],
+  },
+});
+
 const upload = multer({ storage });
 
 // ✅ Routes
@@ -47,19 +56,23 @@ router.post(
   createTask
 );
 
-router.get("/", getAllTasks); // 🔹 All tasks
-router.get("/urgent", getUrgentTasksByStatus); // 🔹 Urgent tasks
-router.get("/client", verifyToken, getTasksByClient); // 🔹 Tasks by client
+router.get("/", getAllTasks);
+router.get("/urgent", getUrgentTasksByStatus);
+router.get("/client", verifyToken, getTasksByClient);
 router.get("/filter", getTasksByStatus);
-// In your taskRoutes.js
+router.get("/tasks", getAllTasks);
+router.get("/tasks/filters", getTaskFilters);
 router.get("/filter/exclude", verifyToken, getTasksExcludingStatus);
-router.get("/:id", getTaskById); // 🔹 Task by ID
-router.post("/:id/bid", verifyToken, addBidToTask); // 🔹 Bid
+router.get("/:id", getTaskById);
+router.post("/:id/bid", verifyToken, addBidToTask);
 router.post("/:id/comment", verifyToken, addCommentToTask);
-router.patch("/:id/request-completion", verifyToken, requestCompletionByTasker); // 🔹 Tasker requests completion
+router.patch("/:id/request-completion", verifyToken, requestCompletionByTasker);
 router.patch("/:taskId/comments/:commentId/reply", verifyToken, replyToComment);
 router.patch("/:taskId/status", verifyToken, updateTaskStatusByClient);
-router.patch("/:id/accept", verifyToken, acceptTaskByTasker); // 🔹 Accept
-router.patch("/:id", verifyToken, updateTask); // 🔹 Update task
-router.delete("/:id", verifyToken, deleteTask); // 🔹 Delete task
+router.patch("/:id/accept", verifyToken, acceptTaskByTasker);
+router.patch("/:id", verifyToken, updateTask);
+router.delete("/:id", verifyToken, deleteTask);
+router.post("/tasks/bulk-delete", bulkDeleteTasks);
+router.delete("/tasks/:id", deleteTaskAdnmin);
+
 export default router;

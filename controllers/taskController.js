@@ -1,7 +1,7 @@
 import Task from "../models/task.js";
 import User from "../models/user.js";
 
-// ✅ 1. Create a Task
+// taskController.js
 export const createTask = async (req, res) => {
     try {
         const {
@@ -13,13 +13,22 @@ export const createTask = async (req, res) => {
             schedule,
             additionalInfo,
             price,
-            offerDeadline
+            offerDeadline,
         } = req.body;
 
-        console.log(req.body)
+        // 🧪 Debug Logs
+        console.log("BODY:", req.body);
+        console.log("FILES:", req.files);
 
-        const photos = req.files?.photos?.map((file) => file.filename) || [];
-        const video = req.files?.video?.[0]?.filename || null;
+        // ✅ Safe Access to Uploaded Files
+        const photos = Array.isArray(req.files?.photos)
+            ? req.files.photos.map((file) => file.path)
+            : [];
+
+        const video =
+            Array.isArray(req.files?.video) && req.files.video.length > 0
+                ? req.files.video[0].path
+                : null;
 
         const newTask = new Task({
             serviceId,
@@ -34,28 +43,127 @@ export const createTask = async (req, res) => {
             photos,
             price,
             video,
-            client: req.user.id, // Save only user ID as ObjectId
+            client: req.user.id,
         });
 
         await newTask.save();
         res.status(201).json({ message: "Task created successfully", task: newTask });
     } catch (error) {
         console.error("❌ Error creating task:", error);
-        res.status(500).json({ error: "Failed to create task", details: error.message });
+        res.status(500).json({
+            error: "Internal server error",
+            message: "Something went wrong",
+            details: error.message,
+        });
     }
 };
 
-// ✅ 2. Get All Tasks (populate client info)
+
+// Enhanced getAllTasks controller with pagination and search
 export const getAllTasks = async (req, res) => {
     try {
-        const tasks = await Task.find()
-            .populate("client", "fullName email")
-            .sort({ createdAt: -1 });
-        res.status(200).json(tasks);
+        const {
+            page = 1,
+            limit = 10,
+            search = '',
+            status = '',
+            priority = '',
+            category = '',
+            sortBy = 'createdAt',
+            sortOrder = 'desc'
+        } = req.query;
+
+        // Convert page and limit to numbers
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build search query
+        let searchQuery = {};
+
+        // Text search across multiple fields
+        if (search) {
+            searchQuery.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+                { type: { $regex: search, $options: 'i' } },
+                { category: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Filter by status
+        if (status) {
+            searchQuery.status = status;
+        }
+
+        // Filter by priority  
+        if (priority) {
+            searchQuery.priority = priority;
+        }
+
+        // Filter by category
+        if (category) {
+            searchQuery.category = category;
+        }
+
+        // Build sort object
+        const sortObj = {};
+        sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        // Execute queries
+        const [tasks, totalTasks] = await Promise.all([
+            Task.find(searchQuery)
+                .populate("client", "fullName email")
+                .sort(sortObj)
+                .skip(skip)
+                .limit(limitNum),
+            Task.countDocuments(searchQuery)
+        ]);
+
+        // Calculate pagination info
+        const totalPages = Math.ceil(totalTasks / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        res.status(200).json({
+            tasks,
+            pagination: {
+                currentPage: pageNum,
+                totalPages,
+                totalTasks,
+                hasNextPage,
+                hasPrevPage,
+                limit: limitNum
+            }
+        });
     } catch (error) {
+        console.error('Error fetching tasks:', error);
         res.status(500).json({ error: "Failed to fetch tasks" });
     }
 };
+
+
+// Get filter options (for dropdowns)
+export const getTaskFilters = async (req, res) => {
+    try {
+        const [statuses, priorities, categories] = await Promise.all([
+            Task.distinct('status'),
+            Task.distinct('priority'),
+            Task.distinct('category')
+        ]);
+
+        res.status(200).json({
+            statuses,
+            priorities,
+            categories
+        });
+    } catch (error) {
+        console.error('Error fetching filter options:', error);
+        res.status(500).json({ error: "Failed to fetch filter options" });
+    }
+};
+
+
 
 // ✅ 3. Get Task by ID (with bid privacy logic)
 export const getTaskById = async (req, res) => {
@@ -348,12 +456,13 @@ export const updateTask = async (req, res) => {
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ error: "Task not found" });
 
-        if (task.client.toString() !== req.user.id) {
-            return res.status(403).json({ error: "Unauthorized to update this task" });
-        }
+        // if (task.client.toString() !== req.user.id) {
+        //     return res.status(403).json({ error: "Unauthorized to update this task" });
+        // }
 
         const updatedTask = await Task.findByIdAndUpdate(taskId, req.body, { new: true });
         res.status(200).json({ message: "Task updated", task: updatedTask });
+
     } catch (error) {
         res.status(500).json({ error: "Failed to update task", details: error.message });
     }
@@ -363,10 +472,8 @@ export const updateTask = async (req, res) => {
 export const deleteTask = async (req, res) => {
     try {
         const taskId = req.params.id;
-
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ error: "Task not found" });
-
         if (task.client.toString() !== req.user.id) {
             return res.status(403).json({ error: "Unauthorized to delete this task" });
         }
@@ -375,5 +482,59 @@ export const deleteTask = async (req, res) => {
         res.status(200).json({ message: "Task deleted successfully" });
     } catch (error) {
         res.status(500).json({ error: "Failed to delete task", details: error.message });
+    }
+};
+
+// Delete task controller
+export const deleteTaskAdnmin = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        console.log(id)
+        // Validate ObjectId
+        if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.status(400).json({ error: "Invalid task ID" });
+        }
+
+        const deletedTask = await Task.findByIdAndDelete(id);
+
+        if (!deletedTask) {
+            return res.status(404).json({ error: "Task not found" });
+        }
+
+        res.status(200).json({
+            message: "Task deleted successfully",
+            deletedTask: deletedTask._id
+        });
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        res.status(500).json({ error: "Failed to delete task" });
+    }
+};
+
+
+export const bulkDeleteTasks = async (req, res) => {
+    try {
+        const { taskIds } = req.body;
+
+        if (!Array.isArray(taskIds) || taskIds.length === 0) {
+            return res.status(400).json({ error: "Task IDs array is required" });
+        }
+
+        // Validate all ObjectIds
+        const invalidIds = taskIds.filter(id => !id.match(/^[0-9a-fA-F]{24}$/));
+        if (invalidIds.length > 0) {
+            return res.status(400).json({ error: "Invalid task IDs provided" });
+        }
+
+        const result = await Task.deleteMany({ _id: { $in: taskIds } });
+
+        res.status(200).json({
+            message: `${result.deletedCount} tasks deleted successfully`,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.error('Error bulk deleting tasks:', error);
+        res.status(500).json({ error: "Failed to delete tasks" });
     }
 };

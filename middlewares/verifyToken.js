@@ -2,6 +2,9 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.js"; // your User model
 
 const verifyToken = async (req, res, next) => {
+  console.log("Cookies:", req.cookies); // 👈 See if token is present
+  console.log("Authorization header:", req.headers.authorization);
+
   let token = req.cookies.token;
 
   if (!token && req.headers.authorization?.startsWith("Bearer ")) {
@@ -20,7 +23,7 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ message: "User not found." });
     }
 
-    req.user = user; // This has full user object including role
+    req.user = user;
     next();
   } catch (err) {
     return res.status(403).json({ message: "Invalid token." });
