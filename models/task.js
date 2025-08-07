@@ -18,9 +18,9 @@ const TaskSchema = new mongoose.Schema(
       required: true,
     },
     extraCharge: { type: Boolean, default: false },
-    price: { type: Number },
+    price: { type: Number, required:true },
     additionalInfo: { type: String },
-    offerDeadline: { type: Date, required: true },
+    offerDeadline: { type: Date },  // no 'required: true'
     status: {
       type: String,
       enum: ["pending", "in progress", "completed", "requested" , "not completed"],
@@ -36,6 +36,7 @@ const TaskSchema = new mongoose.Schema(
 
     acceptedBy: {
       type: mongoose.Schema.Types.ObjectId,
+      
       ref: "User",
       default: null,
     },
@@ -46,6 +47,9 @@ const TaskSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
           required: true,
+
+
+          
         },
         role: {
           type: String,
@@ -90,4 +94,5 @@ const TaskSchema = new mongoose.Schema(
 );
 
 const Task = mongoose.model("Task", TaskSchema);
+
 export default Task;

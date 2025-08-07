@@ -5,6 +5,7 @@ import Service from "../models/service.js";
 export const createService = async (req, res) => {
   try {
     const newService = new Service(req.body);
+    console.log(req.body)
     await newService.save();
     res.status(201).json(newService);
   } catch (error) {

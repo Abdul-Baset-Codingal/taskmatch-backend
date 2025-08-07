@@ -25,7 +25,7 @@ const PackageSchema = new Schema({
 }, { _id: false });
 
 const ServiceSchema = new Schema({
-  id: { type: String, required: true, unique: true },
+  // id: { type: String, required: true, unique: true },
   title: { type: String, required: true },
   category: String,
   description: String,

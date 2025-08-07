@@ -20,8 +20,9 @@ const userSchema = new mongoose.Schema(
     fullName: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     phone: { type: String, required: true },
-    province: { type: String, required: true },
+    postalCode: { type: String, required: true },
     password: { type: String, required: true },
+    isBlocked: { type: Boolean, default: false },
 
     profilePicture: String,
     dob: Date,
@@ -59,19 +60,6 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// 🔐 Pre-save hook to hash password
-userSchema.pre("save", async function (next) {
-  // Only hash if password is modified or new
-  if (!this.isModified("password")) return next();
-
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
 
 // Optional: Method to compare passwords
 userSchema.methods.comparePassword = async function (enteredPassword) {
