@@ -6,6 +6,7 @@ const ServiceSchema = new Schema({
     description: { type: String, required: true },
     hourlyRate: { type: Number, required: true },
     estimatedDuration: { type: String, required: true },
+    
 });
 
 // Booking Schema

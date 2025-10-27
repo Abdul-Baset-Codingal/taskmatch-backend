@@ -41,7 +41,10 @@ const RequestQuoteSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ["pending", "responded", "accepted", "declined"],
+            enum: ["pending", "accepted", "rejected", "completed"
+
+                
+            ],
             default: "pending",
         },
     },

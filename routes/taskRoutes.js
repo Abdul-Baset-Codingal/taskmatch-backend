@@ -1,8 +1,4 @@
-// taskRoutes.js
 import express from "express";
-import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
 import {
   createTask,
   addBidToTask,
@@ -22,57 +18,69 @@ import {
   deleteTask,
   deleteTaskAdnmin,
   bulkDeleteTasks,
+  getScheduledTasksByStatus,
+  getCompletedAndInProgressTasks,
+  acceptBidByClient,
+  addTaskReview,
+  getTasksByTaskerIdAndStatus,
+  getFlexibleTasksByStatus,
+  declineByTasker,
 } from "../controllers/taskController.js";
 import verifyToken from "../middlewares/verifyToken.js";
+import upload from "../utils/multerConfig.js";
+import { restrictTo } from "../middlewares/restrictTo.js";
 
 const router = express.Router();
 
-// ✅ Cloudinary Config
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+router.get("/schedule", getScheduledTasksByStatus);
+router.get("/urgent", getUrgentTasksByStatus);
+router.get("/flexible", getFlexibleTasksByStatus);
+router.get("/completedAndInProgress", getCompletedAndInProgressTasks);
+router.get("/filter", getTasksByStatus);
+router.get("/filter/exclude", verifyToken, getTasksExcludingStatus);
+router.get("/client", verifyToken, getTasksByClient);
+router.get("/", getAllTasks);
+router.get("/taskertasks/:id", getTasksByTaskerIdAndStatus)
 
-// ✅ Cloudinary Storage Setup
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "taskmatch_uploads",
-    allowed_formats: ["jpg", "jpeg", "png", "gif", "mp4", "mov", "avi"],
-  },
-});
-
-const upload = multer({ storage });
-
-// ✅ Routes
 router.post(
   "/",
-  verifyToken,
+  (req, res, next) => {
+    console.log("POST /api/tasks route hit at", new Date().toISOString());
+    console.log("Raw request body:", req.body);
+    console.log("Raw headers:", req.headers);
+    next();
+  },
   upload.fields([
     { name: "photos", maxCount: 3 },
     { name: "video", maxCount: 1 },
-  ]),
+  ]), // Remove { name: "estimatedTime" }
+  (req, res, next) => {
+    console.log("After multer, req.body:", JSON.stringify(req.body, null, 2));
+    console.log("After multer, req.body.estimatedTime:", req.body.estimatedTime);
+    console.log("Type of req.body.estimatedTime:", typeof req.body.estimatedTime);
+    next();
+  },verifyToken,
   createTask
 );
 
-router.get("/", getAllTasks);
-router.get("/urgent", getUrgentTasksByStatus);
-router.get("/client", verifyToken, getTasksByClient);
-router.get("/filter", getTasksByStatus);
-router.get("/tasks", getAllTasks);
-router.get("/tasks/filters", getTaskFilters);
-router.get("/filter/exclude", verifyToken, getTasksExcludingStatus);
-router.get("/:id", getTaskById);
+router.post("/tasks/bulk-delete", bulkDeleteTasks);
 router.post("/:id/bid", verifyToken, addBidToTask);
 router.post("/:id/comment", verifyToken, addCommentToTask);
+router.post("/reviews", verifyToken, restrictTo("client"), addTaskReview);
+
 router.patch("/:id/request-completion", verifyToken, requestCompletionByTasker);
+router.patch("/:id/decline", verifyToken, declineByTasker);
+
 router.patch("/:taskId/comments/:commentId/reply", verifyToken, replyToComment);
 router.patch("/:taskId/status", verifyToken, updateTaskStatusByClient);
 router.patch("/:id/accept", verifyToken, acceptTaskByTasker);
+router.patch('/:id/accept-bid', verifyToken, acceptBidByClient);
 router.patch("/:id", verifyToken, updateTask);
+
+
 router.delete("/:id", verifyToken, deleteTask);
-router.post("/tasks/bulk-delete", bulkDeleteTasks);
 router.delete("/tasks/:id", deleteTaskAdnmin);
+
+router.get("/:id", getTaskById);
 
 export default router;

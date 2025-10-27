@@ -38,6 +38,33 @@ const BookingTaskerSchema = new Schema(
             },
         },
         service: ServiceSchema,
+        date: {
+            type: Date,
+            required: [true, "Booking date and time are required"],
+            validate: {
+                validator: async function (value) {
+                    const tasker = await mongoose.models.User.findById(this.tasker);
+                    if (!tasker || !tasker.availability) return false;
+
+                    const bookingDate = new Date(value);
+                    const dayName = bookingDate.toLocaleString('en-US', { weekday: 'long' });
+                    const hours = bookingDate.getHours();
+                    const minutes = bookingDate.getMinutes();
+
+                    const availability = tasker.availability.find(slot => slot.day === dayName);
+                    if (!availability) return false;
+
+                    const [startHour, startMinute] = availability.from.split(':').map(Number);
+                    const [endHour, endMinute] = availability.to.split(':').map(Number);
+                    const bookingTimeInMinutes = hours * 60 + minutes;
+                    const startTimeInMinutes = startHour * 60 + startMinute;
+                    const endTimeInMinutes = endHour * 60 + endMinute;
+
+                    return bookingTimeInMinutes >= startTimeInMinutes && bookingTimeInMinutes < endTimeInMinutes;
+                },
+                message: "Booking date and time must be within tasker's availability",
+            },
+        },
         status: {
             type: String,
             enum: ["pending", "confirmed", "cancelled", "completed"],

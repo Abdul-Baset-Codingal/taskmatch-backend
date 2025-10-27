@@ -6,6 +6,7 @@ const TaskSchema = new mongoose.Schema(
     serviceTitle: { type: String, required: true },
     taskTitle: { type: String, required: true },
     taskDescription: { type: String, required: true },
+
     location: { type: String, required: true },
     photos: {
       type: [String],
@@ -14,42 +15,39 @@ const TaskSchema = new mongoose.Schema(
     video: { type: String },
     schedule: {
       type: String,
-      enum: ["Today", "Schedule", "Urgent"],
+      enum: ["Flexible", "Schedule", "Urgent"],
       required: true,
     },
+    estimatedTime: {
+      type: String,
+      required: true,
+      set: (v) => String(v), // Convert to string
+    },
     extraCharge: { type: Boolean, default: false },
-    price: { type: Number, required:true },
+    price: { type: Number, required: true },
     additionalInfo: { type: String },
-    offerDeadline: { type: Date },  // no 'required: true'
+    offerDeadline: { type: Date },
     status: {
       type: String,
-      enum: ["pending", "in progress", "completed", "requested" , "not completed"],
+      enum: ["pending", "in progress", "completed", "requested", "not completed" , "declined"],
       default: "pending",
     },
-
-    // ✅ Updated client field
     client: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-
     acceptedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      
       ref: "User",
       default: null,
     },
-
     comments: [
       {
         userId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
           required: true,
-
-
-          
         },
         role: {
           type: String,
@@ -76,7 +74,6 @@ const TaskSchema = new mongoose.Schema(
         ],
       },
     ],
-
     bids: [
       {
         taskerId: {
@@ -90,9 +87,11 @@ const TaskSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  { timestamps: true, strict: true }
 );
 
-const Task = mongoose.model("Task", TaskSchema);
-
-export default Task;
+// Clear cached model
+if (mongoose.models.Task) {
+  delete mongoose.models.Task;
+}
+export default mongoose.model("Task", TaskSchema);
