@@ -1,6 +1,6 @@
 // authRoutes.js
 import express from "express";
-import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole } from "../controllers/authController.js";
+import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole, toggleTaskerProfileCheck } from "../controllers/authController.js";
 import upload from "../utils/multerConfig.js";
 import { getNotifications, markAllAsRead, markAsRead } from "../controllers/notificationController.js";
 
@@ -17,6 +17,7 @@ router.get('/users/single/:id', getUserById);
 router.get('/taskers', getTaskersByCategory);
 router.patch('/users/:id',switchRole )
 router.patch("/users/block/:id", toggleBlockUser);
+router.patch("/users/taskerProfileCheck/:id", toggleTaskerProfileCheck);
 router.delete('/users/:id', deleteUser);
 router.get("/notifications", getNotifications);
 router.patch("/notifications/:id/read", markAsRead);

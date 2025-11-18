@@ -28,7 +28,7 @@ router.post("/bookings", verifyToken , createBooking);
 router.get("/bookings", getAllBookings);
 router.get("/bookings/user/:userId", getBookingsByUserId);
 router.patch("/bookings/:id", updateBooking);
-router.post("/reviews", verifyToken, restrictTo("client"), addReview);
+router.post("/reviews", verifyToken, addReview);
 router.delete("/bookings/:id", deleteBooking);
 // Fetch bookings by tasker ID
 router.get('/tasker/:taskerId', verifyToken, getBookingsByTaskerId);

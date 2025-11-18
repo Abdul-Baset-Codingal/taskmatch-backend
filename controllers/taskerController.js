@@ -121,12 +121,12 @@ import { createNotification } from "./notificationHelper.js";
         }
 
         const tasker = await mongoose.models.User.findById(taskerId);
-        if (!tasker || tasker.role !== "tasker") {
+        if (!tasker || tasker.currentRole !== "tasker") {
             return res.status(400).json({ message: "Tasker not found or invalid role" });
         }
 
         const client = await mongoose.models.User.findById(clientId);
-        if (!client || client.role !== "client") {
+        if (!client || client.currentRole !== "client") {
             return res.status(400).json({ message: "Client not found or invalid role" });
         }
 

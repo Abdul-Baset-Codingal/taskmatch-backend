@@ -2,17 +2,6 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
-
-
-
-
-
-
-
-
-
-
-
 import cookieParser from "cookie-parser";
 import { createNotification } from "./notificationHelper.js";
 
@@ -31,153 +20,26 @@ const createToken = (id) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// this is real one that i was using
 
-
-// COMMON COOKIE OPTIONS
 const tokenCookieOptions = {
     httpOnly: true,
     secure: true,
     sameSite: "none",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
 };
-
 
 const statusCookieOptions = {
-    httpOnly: false,          // accessible by JS on frontend
-    secure: true,             // sent only over HTTPS
-    sameSite: "none",         // allows cross-site cookie sending
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: "/",                // cookie applies to all backend routes
+    httpOnly: false,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
 
-// export const signup = async (req, res) => {
-//     try {
-//         const { firstName, lastName , email, phone, postalCode, password, role } = req.body;
 
-//         const existing = await User.findOne({ email });
-//         if (existing) return res.status(400).json({ message: 'User already exists' });
-
-//         const hashedPassword = await bcrypt.hash(password, 10);
-
-//         const userData = {
-//             firstName,
-//             lastName,
-//             email,
-//             phone,
-//             postalCode,
-//             password: hashedPassword,
-//             role,
-//         };
-
-//         if (role === 'tasker') {
-//             // multer + CloudinaryStorage puts the uploaded file info in req.file
-//             userData.profilePicture = req.body.profilePicture || ''; // Use ImgBB URL
-
-
-//             console.log(req.body)
-
-
-//             userData.categories = req.body.serviceCategories || [];
-//             userData.skills = req.body.skills || [];
-//             userData.yearsOfExperience = req.body.experienceYears || '';
-//             userData.qualifications = req.body.qualifications || [];
-//             userData.services = req.body.services || [];
-//             userData.certifications = req.body.certifications || [];
-//             userData.backgroundCheckConsent = req.body.backgroundCheckConsent || false;
-//             userData.hasInsurance = req.body.hasInsurance || false;
-//             userData.availability = req.body.availability || [];
-//             userData.serviceAreas = req.body.serviceAreas || [];
-//             userData.profilePicture = req.body.profilePicture || ''; // Use ImgBB URL
-
-//         }
-
-//         const user = await User.create(userData);
-
-//         const token = createToken(user._id);
-
-//         res.cookie('token', token, tokenCookieOptions);
-//         res.cookie('isLoggedIn', 'true', statusCookieOptions);
-
-//         res.status(201).json({ message: 'Signup successful', user });
-//     } catch (err) {
-//         res.status(500).json({ message: 'Signup failed', error: err.message });
-//     }
-// };
-
-// export const signup = async (req, res) => {
-//     try {
-//         const {
-//             firstName,
-//             lastName,
-//             email,
-//             phone,
-//             postalCode,
-//             password,
-//             role,
-//             idType, // New field
-//             govID, // URL for passport or front of government ID
-//             govIDBack, // URL for back of government ID
-//             serviceCategories,
-//             skills,
-//             experienceYears,
-//             qualifications,
-//             services,
-//             certifications,
-//             backgroundCheckConsent,
-//             hasInsurance,
-//             availability,
-//             serviceAreas,
-//             profilePicture
-//         } = req.body;
-
-//         console.log(req.body)
-
-//         const existing = await User.findOne({ email });
-//         if (existing) return res.status(400).json({ message: 'User already exists' });
-
-//         const hashedPassword = await bcrypt.hash(password, 10);
-
-//         const userData = {
-//             firstName,
-//             lastName,
-//             email,
-//             phone,
-//             postalCode,
-//             password: hashedPassword,
-//             role,
-//         };
-
-//         if (role === 'tasker') {
-//             userData.idType = idType || null; // Store ID type
-//             userData.governmentId = govID || ''; // Store passport or front of government ID
-//             userData.govIDBack = govIDBack || ''; // Store back of government ID (if applicable)
-//             userData.categories = serviceCategories || [];
-//             userData.skills = skills || [];
-//             userData.yearsOfExperience = experienceYears || '';
-//             userData.qualifications = qualifications || [];
-//             userData.services = services || [];
-//             userData.certifications = certifications || [];
-//             userData.backgroundCheckConsent = backgroundCheckConsent || false;
-//             userData.hasInsurance = hasInsurance || false;
-//             userData.availability = availability || [];
-//             userData.serviceAreas = serviceAreas || [];
-//             userData.profilePicture = profilePicture || ''; // Use ImgBB URL
-//         }
-
-//         const user = await User.create(userData);
-
-//         const token = createToken(user._id);
-
-//         res.cookie('token', token, tokenCookieOptions);
-//         res.cookie('isLoggedIn', 'true', statusCookieOptions);
-
-//         res.status(201).json({ message: 'Signup successful', user });
-//     } catch (err) {
-//         res.status(500).json({ message: 'Signup failed', error: err.message });
-//     }
-// };
 
 
 export const signup = async (req, res) => {
@@ -191,15 +53,19 @@ export const signup = async (req, res) => {
             password,
             role,  // "client" or "tasker"
             dob,
-            address: street,  // Renamed for clarity
+            address: street,  // Renamed for clarity (assuming body has 'address' as street)
             city,
             province,
             language,
             about,
             travelDistance,
             idType,
-            govID,
-            govIDBack,
+            passportUrl,
+            governmentIdFront,
+            governmentIdBack,
+            sin,
+            issueDate,
+            expiryDate,
             serviceCategories: categories,  // Renamed
             skills,
             experienceYears: yearsOfExperience,
@@ -211,6 +77,9 @@ export const signup = async (req, res) => {
             availability,
             serviceAreas,
             profilePicture,
+            accountHolder,
+            accountNumber,
+            routingNumber,
         } = req.body;
 
         console.log(req.body);
@@ -219,8 +88,17 @@ export const signup = async (req, res) => {
             return res.status(400).json({ message: "Invalid role type" });
         }
 
-        const existing = await User.findOne({ email });
-        if (existing) return res.status(400).json({ message: "User already exists" });
+        // Check for existing email
+        const existingEmail = await User.findOne({ email });
+        if (existingEmail) {
+            return res.status(400).json({ message: "Email already exists" });
+        }
+
+        // Check for existing phone number
+        const existingPhone = await User.findOne({ phone });
+        if (existingPhone) {
+            return res.status(400).json({ message: "Phone number already exists" });
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -237,7 +115,7 @@ export const signup = async (req, res) => {
         };
 
         if (role === "tasker") {
-            // Validate required tasker fields
+            // Validate required tasker fields (uncomment if needed)
             const requiredFields = {
                 about: about,
                 profilePicture: profilePicture,
@@ -255,18 +133,15 @@ export const signup = async (req, res) => {
                 language: language,
                 travelDistance: travelDistance,
                 idType: idType,
-                governmentId: govID,
-                govIDBack: govIDBack,
+                sin: sin,
+                // Note: issueDate and expiryDate are optional but recommended
+                passportUrl: passportUrl,  // Conditional on idType
+                governmentIdFront: governmentIdFront,  // Conditional on idType
+                governmentIdBack: governmentIdBack,  // Conditional on idType
             };
 
-            // for (const [field, value] of Object.entries(requiredFields)) {
-            //     if (!value || (Array.isArray(value) && value.length === 0)) {
-            //         return res.status(400).json({ message: `${field.charAt(0).toUpperCase() + field.slice(1)} is required for taskers` });
-            //     }
-            // }
-
             // Set tasker fields
-            userData.dob = dob;
+            userData.dob = dob ? new Date(dob) : undefined;
             userData.address = {
                 street: street || "",
                 city: city || "",
@@ -277,8 +152,9 @@ export const signup = async (req, res) => {
             userData.about = about;
             userData.travelDistance = travelDistance;
             userData.idType = idType;
-            userData.governmentId = govID;
-            userData.govIDBack = govIDBack;
+            userData.sin = sin;
+            userData.issueDate = issueDate ? new Date(issueDate) : undefined;
+            userData.expiryDate = expiryDate ? new Date(expiryDate) : undefined;
             userData.categories = categories;
             userData.skills = skills;
             userData.yearsOfExperience = yearsOfExperience;
@@ -290,20 +166,35 @@ export const signup = async (req, res) => {
             userData.availability = availability;
             userData.serviceAreas = serviceAreas;
             userData.profilePicture = profilePicture;
+
+            // Set bank details (optional for taskers)
+            userData.accountHolder = accountHolder;
+            userData.accountNumber = accountNumber;
+            userData.routingNumber = routingNumber;
         }
 
         const user = await User.create(userData);
 
-        const token = createToken(user._id);
+        let message = "Signup successful";
+        let loginCookies = true;
 
-        res.cookie("token", token, tokenCookieOptions);
-        res.cookie("isLoggedIn", "true", statusCookieOptions);
+        if (role === "tasker") {
+            // For taskers, do not set login cookies; profile is under review by default
+            message = "Tasker profile submitted successfully. Your profile is under review and will be approved by admin soon. You can login once approved.";
+            loginCookies = false;
+        } else {
+            // For clients, set login cookies
+            const token = createToken(user._id);
+            res.cookie("token", token, tokenCookieOptions);
+            res.cookie("isLoggedIn", "true", statusCookieOptions);
+        }
 
-        res.status(201).json({ message: "Signup successful", user: { ...user.toObject(), password: undefined } });
+        res.status(201).json({ message, user: { ...user.toObject(), password: undefined } });
     } catch (err) {
         res.status(500).json({ message: "Signup failed", error: err.message });
     }
 };
+
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -314,6 +205,11 @@ export const login = async (req, res) => {
         // 🚫 Check if the user is blocked
         if (user.isBlocked) {
             return res.status(403).json({ message: "Your account has been blocked by the admin." });
+        }
+
+        // 🚫 Check if the user is a tasker under review
+        if (user.roles.includes("tasker") && !user.taskerProfileCheck) {
+            return res.status(403).json({ message: "Your tasker profile is under review. Please wait for admin approval." });
         }
 
         const match = await bcrypt.compare(password, user.password);
@@ -543,67 +439,357 @@ export const switchRole = async (req, res) => {
 
 // In controllers/userController.js
 
+// export const updateProfile = async (req, res) => {
+//     console.log("Received PUT /api/users/:id");
+//     console.log("Request body:", req.body);
+//     console.log("Authenticated user ID:", req.user?._id);
+//     console.log("Target user ID:", req.params.id);
+
+//     try {
+//         const userId = req.params.id;
+
+//         // 🔹 Find the user
+//         const user = await User.findById(userId);
+//         if (!user) {
+//             console.log("User not found for ID:", userId);
+//             return res.status(404).json({ error: "User not found" });
+//         }
+
+//         // 🔹 Preserve existing roles if not explicitly provided in request
+//         const { email, password, rating, reviewCount, roles, ...otherData } = req.body;
+//         let updateData = { ...otherData };
+
+//         // If roles are not provided or are invalid (e.g., [null], null, undefined), preserve existing
+//         if (!roles || (Array.isArray(roles) && (roles.length === 0 || roles.every(r => r === null || r === undefined)))) {
+//             updateData.roles = user.roles || ['client']; // Preserve or default safely
+//             console.log("Preserving roles:", updateData.roles);
+//         } else {
+//             // Validate incoming roles (optional: ensure they are valid strings)
+//             const validRoles = roles.filter(role => role && typeof role === 'string' && (role === 'client' || role === 'tasker'));
+//             updateData.roles = validRoles.length > 0 ? validRoles : user.roles || ['client'];
+//             console.log("Using incoming roles (validated):", updateData.roles);
+//         }
+
+//         // 🔹 Validate email uniqueness if provided
+//         if (email && email !== user.email) {
+//             const existingEmail = await User.findOne({ email });
+//             if (existingEmail) {
+//                 console.log("Email already in use:", email);
+//                 return res.status(400).json({ error: "Email already in use" });
+//             }
+//         }
+
+//         // 🔹 Prepare update data (exclude restricted fields, add email/password)
+//         if (email) updateData.email = email;
+//         if (password) {
+//             updateData.password = await bcrypt.hash(password, 10);
+//         }
+
+//         // 🔹 Update user safely
+//         // Disable schema validators for update (prevents "this.roles.includes" error)
+//         const updatedUser = await User.findByIdAndUpdate(
+//             userId,
+//             { $set: updateData },
+//             { new: true, runValidators: false } // ✅ changed to false to prevent query-validator crash
+//         );
+
+//         console.log("Updated user (roles):", updatedUser.roles);
+
+//         // 🔹 Create notification (non-blocking)
+//         try {
+//             await createNotification(
+//                 req.user?._id || userId,
+//                 "Profile Updated Successfully",
+//                 "Your tasker profile has been updated. You can now switch to tasker mode if all fields are complete.",
+//                 "profile-update"
+//             );
+//             console.log("Notification created for profile update");
+//         } catch (notifErr) {
+//             console.error("Failed to create notification (non-blocking):", notifErr);
+//         }
+
+//         return res.status(200).json({ message: "User updated", user: updatedUser });
+//     } catch (error) {
+//         console.error("Update user error:", error);
+//         return res.status(500).json({
+//             error: "Failed to update user",
+//             details: error.message,
+//         });
+//     }
+// };
+
+// Backend: Updated updateProfile handler (assuming this handles both PUT/PATCH for profile updates and role switches)
+// Add this to your user controller or route handler for /api/auth/users/:id (PATCH/PUT)
+
+
 export const updateProfile = async (req, res) => {
-    console.log('Received PUT /api/users/:id');
-    console.log('Request body:', req.body);
-    console.log('Authenticated user ID:', req.user?._id);
-    console.log('Target user ID:', req.params.id);
+    console.log("Received", req.method, "/api/auth/users/:id");
+    console.log("Request body:", req.body);
+    console.log("Authenticated user ID:", req.user?._id);
+    console.log("Target user ID:", req.params.id);
+
     try {
         const userId = req.params.id;
 
-        // Find the user
+        // 🔹 Find the user (fetch full doc to preserve roles)
         const user = await User.findById(userId);
         if (!user) {
-            console.log('User not found for ID:', userId);
-            return res.status(404).json({ error: 'User not found' });
+            console.log("User not found for ID:", userId);
+            return res.status(404).json({ error: "User not found" });
         }
 
-        // Validate email uniqueness if provided
-        const { email, password, rating, reviewCount, ...otherData } = req.body;
+        console.log("Pre-update roles:", user.roles);  // Log before
+
+        // UPDATED: Ignore userId in body (redundant) - Fixed destructuring to avoid redeclaration
+        const { email, password, rating, reviewCount, role: incomingRole, ...otherData } = req.body;
+        let updateData = { ...otherData };
+
+        // 🔹 Handle role switch specifically (treat 'role' as currentRole)
+        const newRole = incomingRole; // From { role: 'tasker' } or { role: 'client' }
+        let isRoleSwitch = false;
+        if (newRole) {
+            isRoleSwitch = true;
+            console.log(`Role switch requested to: ${newRole}`);
+
+            // Always ensure 'client' is in roles (default behavior)
+            let validRoles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
+                role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+            );
+
+            if (newRole === 'tasker') {
+                // For tasker switch: Check if profile is complete
+                const missingFields = computeMissingFields(user);
+                if (missingFields.length > 0 || !user.taskerProfileCheck) {
+                    console.log("Tasker switch blocked - missing fields:", missingFields);
+                    return res.status(400).json({
+                        message: "Tasker profile incomplete. Please complete required fields first.",
+                        missingFields
+                    });
+                }
+                // Add 'tasker' to roles if not present
+                validRoles = [...new Set([...validRoles, 'tasker'])];
+                console.log("Tasker switch approved - roles now:", validRoles);
+            } else if (newRole === 'client') {
+                // Client switch always allowed, no additional checks
+                console.log("Client switch approved - roles:", validRoles);
+            }
+
+            // Set roles and currentRole
+            updateData.roles = validRoles;
+            updateData.currentRole = newRole;
+        }
+
+        // 🔹 Log document fields for debugging (profile updates)
+        if (!isRoleSwitch) {
+            console.log("Document fields in payload:", {
+                idType: updateData.idType,
+                passportUrl: updateData.passportUrl,
+                governmentIdFront: updateData.governmentIdFront,
+                governmentIdBack: updateData.governmentIdBack,
+                insuranceDocument: updateData.insuranceDocument,
+                profilePicture: updateData.profilePicture,
+                backgroundCheckConsent: updateData.backgroundCheckConsent,
+            });
+        }
+
+        // 🔹 CRITICAL: Preserve/validate roles (prevents [null] corruption) - only if not set by role switch
+        if (!updateData.roles && !isRoleSwitch) {
+            // Don't touch roles if not provided—preserve existing (always include 'client')
+            updateData.roles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
+                role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+            );
+            console.log("Preserving roles (not in payload):", updateData.roles);
+        }
+
+        // 🔹 Email uniqueness check (unchanged)
         if (email && email !== user.email) {
             const existingEmail = await User.findOne({ email });
-            if (existingEmail) {
-                console.log('Email already in use:', email);
-                return res.status(400).json({ error: 'Email already in use' });
+            if (existingEmail && existingEmail._id.toString() !== userId) {
+                console.log("Email already in use:", email);
+                return res.status(400).json({ error: "Email already in use" });
             }
         }
 
-        // Prepare update data, explicitly excluding rating and reviewCount
-        const updateData = { ...otherData };
+        // 🔹 Add email/password to updateData (unchanged)
         if (email) updateData.email = email;
         if (password) {
             updateData.password = await bcrypt.hash(password, 10);
         }
 
-        // Update user
-        const updatedUser = await User.findByIdAndUpdate(
+        // 🔹 Update with explicit $set (avoids schema resets)
+        let updatedUser = await User.findByIdAndUpdate(
             userId,
-            { $set: updateData },
+            { $set: updateData },  // Only set explicit fields
             { new: true, runValidators: true }
-        );
+        ).select('-password');
 
-        console.log('Updated user:', updatedUser);
-
-        // Create notification for profile update (non-blocking)
-        try {
-            await createNotification(
-                req.user?._id || userId, // Use authenticated user ID
-                "Profile Updated Successfully",
-                "Your tasker profile has been updated. You can now switch to tasker mode if all fields are complete.",
-                "profile-update"
-            );
-            console.log("Notification created for profile update"); // Debug
-        } catch (notifErr) {
-            console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+        // 🔹 NEW: After profile update (not role switch), check if tasker profile is now complete
+        if (!isRoleSwitch && (updateData.idType || updateData.passportUrl || updateData.governmentIdFront || updateData.governmentIdBack || updateData.issueDate || updateData.expiryDate || updateData.backgroundCheckConsent)) {
+            // Re-fetch to get latest fields
+            updatedUser = await User.findById(userId).select('-password');
+            const isComplete = isTaskerProfileComplete(updatedUser);
+            if (isComplete && !updatedUser.taskerProfileCheck) {
+                console.log("Tasker profile now complete - updating flags and adding tasker role");
+                // Ensure both roles
+                const validRoles = [...new Set([...(updatedUser.roles || ['client']), 'client', 'tasker'])].filter(role =>
+                    role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+                );
+                await User.findByIdAndUpdate(userId, {
+                    $set: {
+                        taskerProfileCheck: true,
+                        roles: validRoles
+                    }
+                });
+                // Re-fetch updated user
+                updatedUser = await User.findById(userId).select('-password');
+            }
         }
 
-        res.status(200).json({ message: 'User updated', user: updatedUser });
+        console.log("Post-update roles:", updatedUser.roles);  // Log after
+        console.log("Post-update currentRole:", updatedUser.currentRole);
+
+        // 🔹 Notification
+        try {
+            const notificationTitle = isRoleSwitch
+                ? `Switched to ${newRole.charAt(0).toUpperCase() + newRole.slice(1)} Mode`
+                : "Profile Updated Successfully";
+            const notificationMessage = isRoleSwitch
+                ? `You have successfully switched to ${newRole} mode. Switch back anytime via the navbar.`
+                : "Your profile has been updated. If tasker requirements are met, you can now switch to Tasker mode.";
+            await createNotification(
+                req.user?._id || userId,
+                notificationTitle,
+                notificationMessage,
+                isRoleSwitch ? "role-switch" : "profile-update"
+            );
+            console.log("Notification created for", isRoleSwitch ? "role switch" : "profile update");
+        } catch (notifErr) {
+            console.error("Failed to create notification (non-blocking):", notifErr);
+        }
+
+        return res.status(200).json({ message: "User updated successfully", user: updatedUser });
     } catch (error) {
-        console.error('Update user error:', error);
-        res.status(500).json({ error: 'Failed to update user', details: error.message });
+        console.error("Update user error:", error);
+        return res.status(500).json({
+            error: "Failed to update user",
+            details: error.message,
+        });
     }
 };
 
+// 🔹 Helper: Check if tasker profile is complete (required fields for tasker)
+const isTaskerProfileComplete = (user) => {
+    if (!user.idType) return false;
+    if (user.idType === 'passport' && !user.passportUrl) return false;
+    if (user.idType === 'governmentID' && (!user.governmentIdFront || !user.governmentIdBack)) return false;
+    if (!user.issueDate || !user.expiryDate) return false;
+    if (new Date(user.expiryDate) <= new Date(user.issueDate)) return false;
+    if (!user.backgroundCheckConsent) return false;
+    // Optional: Add more (e.g., profilePicture, sin, dob) if required
+    return true;
+};
+
+// 🔹 Helper: Compute missing fields for tasker (for error response)
+const computeMissingFields = (user) => {
+    const missing = [];
+    if (!user.idType) missing.push('idType');
+    else if (user.idType === 'passport' && !user.passportUrl) missing.push('passportUrl');
+    else if (user.idType === 'governmentID') {
+        if (!user.governmentIdFront) missing.push('governmentIdFront');
+        if (!user.governmentIdBack) missing.push('governmentIdBack');
+    }
+    if (!user.issueDate) missing.push('issueDate');
+    if (!user.expiryDate) missing.push('expiryDate');
+    if (user.issueDate && user.expiryDate && new Date(user.expiryDate) <= new Date(user.issueDate)) {
+        if (!missing.includes('expiryDate')) missing.push('expiryDate'); // Invalid
+    }
+    if (!user.backgroundCheckConsent) missing.push('backgroundCheckConsent');
+    // Optional: Add more if needed
+    return [...new Set(missing)]; // Unique
+};
+
+
+
+
+
+
+//     console.log('Request body:', req.body);
+//     console.log('Authenticated user ID:', req.user?._id);
+//     console.log('Target user ID:', req.params.id);
+//     try {
+//         const userId = req.params.id;
+
+//         // Find the user
+//         const user = await User.findById(userId);
+//         if (!user) {
+//             console.log('User not found for ID:', userId);
+//             return res.status(404).json({ error: 'User not found' });
+//         }
+
+//         // Validate email uniqueness if provided
+//         const { email, password, rating, reviewCount, ...otherData } = req.body;
+//         if (email && email !== user.email) {
+//             const existingEmail = await User.findOne({ email });
+//             if (existingEmail) {
+//                 console.log('Email already in use:', email);
+//                 return res.status(400).json({ error: 'Email already in use' });
+//             }
+//         }
+
+//         // Prepare update data, explicitly excluding rating and reviewCount
+//         const updateData = { ...otherData };
+//         if (email) updateData.email = email;
+//         if (password) {
+//             updateData.password = await bcrypt.hash(password, 10);
+//         }
+
+//         // Load the user document and apply updates manually to ensure full context for validation
+//         const updatedUserDoc = await User.findById(userId);
+//         if (!updatedUserDoc) {
+//             return res.status(404).json({ error: 'User not found' });
+//         }
+
+//         // Ensure roles is always an array to prevent validation errors
+//         if (!Array.isArray(updatedUserDoc.roles)) {
+//             updatedUserDoc.roles = [];
+//         }
+
+//         // Apply updates
+//         Object.assign(updatedUserDoc, updateData);
+
+//         // If roles is being updated, ensure it's an array
+//         if (updateData.roles && !Array.isArray(updateData.roles)) {
+//             updatedUserDoc.roles = [updateData.roles];
+//         } else if (updateData.roles) {
+//             updatedUserDoc.roles = updateData.roles;
+//         }
+
+//         // Save with validation
+//         await updatedUserDoc.save({ runValidators: true });
+
+//         const updatedUser = updatedUserDoc.toObject();
+
+//         console.log('Updated user:', updatedUser);
+
+//         // Create notification for profile update (non-blocking)
+//         try {
+//             await createNotification(
+//                 req.user?._id || userId, // Use authenticated user ID
+//                 "Profile Updated Successfully",
+//                 "Your tasker profile has been updated. You can now switch to tasker mode if all fields are complete.",
+//                 "profile-update"
+//             );
+//             console.log("Notification created for profile update"); // Debug
+//         } catch (notifErr) {
+//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//         }
+
+//         res.status(200).json({ message: 'User updated', user: updatedUser });
+//     } catch (error) {
+//         console.error('Update user error:', error);
+//         res.status(500).json({ error: 'Failed to update user', details: error.message });
+//     }
+// };
 
 export const verifyToken = async (req, res) => {
     const token = req.cookies.token;
@@ -676,7 +862,7 @@ export const getAllUsers = async (req, res) => {
                 { email: { $regex: search, $options: 'i' } }
             ];
         }
-        if (role) filter.role = role;
+        if (role) filter.currentRole = role;
         if (province) filter.province = province;
 
         const skip = (page - 1) * limit;
@@ -708,22 +894,32 @@ export const getAllUsers = async (req, res) => {
 // controllers/userController.js
 
 
-export const
-    getUserById = async (req, res) => {
-        try {
-            const { id } = req.params;
+export const getUserById = async (req, res) => {
+    console.log('Route hit: GET /users/single/:id');  // NEW: Log entry
+    console.log('Params:', req.params);  // Log the extracted :id
+    console.log('Full URL:', req.originalUrl);  // Log the incoming path
 
-            const user = await User.findById(id);
-
-            if (!user) {
-                return res.status(404).json({ message: 'User not found' });
-            }
-
-            res.status(200).json(user);
-        } catch (err) {
-            res.status(500).json({ message: 'Error fetching user', error: err.message });
+    try {
+        const { id } = req.params;
+        if (!id || id.length !== 24) {  // NEW: Early validation for ObjectId
+            console.log('Invalid ID format:', id);
+            return res.status(400).json({ message: 'Invalid user ID format' });
         }
-    };
+
+        const user = await User.findById(id).select('-password');  // IMPROVED: Exclude password
+
+        console.log('DB Query Result:', user ? 'Found' : 'Not found');  // NEW: Log DB outcome
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        res.status(200).json({ user });  // IMPROVED: Wrap in object for consistency
+    } catch (err) {
+        console.error('getUserById Error:', err);  // IMPROVED: More detailed logging
+        res.status(500).json({ message: 'Error fetching user', error: err.message });
+    }
+};
 
 
 export const getTaskersByCategory = async (req, res) => {
@@ -742,7 +938,9 @@ export const getTaskersByCategory = async (req, res) => {
         } = req.query;
 
         // Build the filter object
-        const filter = { role: 'tasker' };
+        const filter = { currentRole: 'tasker' };
+
+        console.log(req.query)
 
         // 🔍 Filter by serviceCategories
         if (category) {
@@ -927,7 +1125,34 @@ export const toggleBlockUser = async (req, res) => {
     }
 };
 
+export const toggleTaskerProfileCheck = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { approve } = req.body; // boolean: true to approve, false to reject/under review
 
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (!user.roles.includes("tasker")) {
+            return res.status(400).json({ message: "This action is only applicable for taskers" });
+        }
+
+        user.taskerProfileCheck = approve;
+        await user.save();
+
+        res.status(200).json({
+            message: approve ? "Tasker profile approved successfully" : "Tasker profile set under review successfully",
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                taskerProfileCheck: user.taskerProfileCheck,
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ message: "Failed to update tasker profile check status", error: err.message });
+    }
+};
 
 // ==== DELETE USER ====
 export const deleteUser = async (req, res) => {

@@ -20,7 +20,6 @@ const TaskSchema = new mongoose.Schema(
     },
     estimatedTime: {
       type: String,
-      required: true,
       set: (v) => String(v), // Convert to string
     },
     extraCharge: { type: Boolean, default: false },
@@ -56,6 +55,8 @@ const TaskSchema = new mongoose.Schema(
         },
         message: { type: String, required: true },
         createdAt: { type: Date, default: Date.now },
+        isBlocked: { type: Boolean, default: false }, // ← ADD THIS
+        blockReason: { type: String },
         replies: [
           {
             userId: {
@@ -70,6 +71,8 @@ const TaskSchema = new mongoose.Schema(
             },
             message: { type: String, required: true },
             createdAt: { type: Date, default: Date.now },
+            isBlocked: { type: Boolean, default: false }, // ← ADD THIS TOO
+            blockReason: { type: String },
           },
         ],
       },

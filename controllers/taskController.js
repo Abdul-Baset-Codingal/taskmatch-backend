@@ -891,7 +891,7 @@ export const addCommentToTask = async (req, res) => {
             return res.status(400).json({ error: "Comment message cannot be empty" });
         }
 
-        const userRole = req.user.role;
+        const userRole = req.user.currentRole;
 
         if (!["tasker", "client"].includes(userRole)) {
             return res.status(400).json({ error: "Invalid user role" });
@@ -1181,7 +1181,7 @@ export const declineByTasker = async (req, res) => {
             return res.status(400).json({ error: "Task is not in progress" });
         }
 
-        task.status = "declined";
+        task.status = "pending";
         await task.save();
 
         // Create notification for the client (task declined) - non-blocking
@@ -1245,6 +1245,7 @@ export const replyToComment = async (req, res) => {
 
         res.status(200).json({ message: "Reply added", task });
     } catch (error) {
+
         console.error("Error replying to comment:", error);
         res.status(500).json({ error: "Failed to reply", details: error.message });
     }

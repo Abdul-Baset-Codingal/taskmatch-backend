@@ -16,6 +16,7 @@ app.use(cors({
     origin: [
         "http://localhost:3000",
         "https://taskmatch-tau.vercel.app",
+        "https://taskallo.com",
     ],
     credentials: true,
 }));

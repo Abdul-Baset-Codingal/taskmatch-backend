@@ -20,7 +20,7 @@ const BookingTaskerSchema = new Schema(
             validate: {
                 validator: async function (value) {
                     const user = await mongoose.models.User.findById(value);
-                    return user && user.role === "tasker";
+                    return user && user.currentRole === "tasker";
                 },
                 message: "Tasker must be a user with role 'tasker'",
             },
@@ -32,7 +32,7 @@ const BookingTaskerSchema = new Schema(
             validate: {
                 validator: async function (value) {
                     const user = await mongoose.models.User.findById(value);
-                    return user && user.role === "client";
+                    return user && user.currentRole === "client";
                 },
                 message: "Client must be a user with role 'client'",
             },
