@@ -1,8 +1,9 @@
 // authRoutes.js
 import express from "express";
-import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole, toggleTaskerProfileCheck } from "../controllers/authController.js";
+import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole, toggleTaskerProfileCheck, submitTaskerApplication, approveRejectTasker } from "../controllers/authController.js";
 import upload from "../utils/multerConfig.js";
 import { getNotifications, markAllAsRead, markAsRead } from "../controllers/notificationController.js";
+import protectRoute from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 router.post("/signup", upload.single('profilePicture'), signup);
@@ -15,7 +16,9 @@ router.get("/top-reviews", getTopTaskerReviews);
 router.get('/users', getAllUsers);
 router.get('/users/single/:id', getUserById);
 router.get('/taskers', getTaskersByCategory);
-router.patch('/users/:id',switchRole )
+router.patch('/users/:id',protectRoute,switchRole )
+router.post("/submit-tasker-application",verifyToken, submitTaskerApplication);
+router.patch("/users/tasker-approval/:id", approveRejectTasker);
 router.patch("/users/block/:id", toggleBlockUser);
 router.patch("/users/taskerProfileCheck/:id", toggleTaskerProfileCheck);
 router.delete('/users/:id', deleteUser);

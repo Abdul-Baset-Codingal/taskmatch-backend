@@ -20,7 +20,6 @@ const createToken = (id) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 
-// this is real one that i was using
 
 const tokenCookieOptions = {
     httpOnly: true,
@@ -195,6 +194,7 @@ export const signup = async (req, res) => {
     }
 };
 
+
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -250,276 +250,536 @@ export const logout = (req, res) => {
 };
 
 
-// switch role 
+// const app = express();
+// app.use(cookieParser());
 
-// export const switchRole = async (req, res) => {
+// // Token generator
+// const createToken = (id) => {
+//     return jwt.sign({ id }, process.env.JWT_SECRET, {
+//         expiresIn: "7d",
+//     });
+// };
+
+// // ✅ Helper: Detect iOS 12-13 (has SameSite="none" bug)
+// const isIOS12or13 = (userAgent) => {
+//     return /iP(ad|hone|od).* OS (12|13)_/.test(userAgent || '');
+// };
+
+// // ✅ Dynamic cookie options based on user agent
+// const getCookieOptions = (userAgent = '') => {
+//     const isOldIOS = isIOS12or13(userAgent);
+//     const isProduction = process.env.NODE_ENV === "production";
+
+//     return {
+//         token: {
+//             httpOnly: true,
+//             secure: isProduction,
+//             sameSite: isOldIOS ? "strict" : (isProduction ? "none" : "lax"),
+//             path: "/",
+//             maxAge: 7 * 24 * 60 * 60 * 1000,
+//             ...(isProduction && process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN })
+//         },
+//         status: {
+//             httpOnly: false,
+//             secure: isProduction,
+//             sameSite: isOldIOS ? "strict" : (isProduction ? "none" : "lax"),
+//             path: "/",
+//             maxAge: 7 * 24 * 60 * 60 * 1000,
+//             ...(isProduction && process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN })
+//         }
+//     };
+// };
+
+// export const signup = async (req, res) => {
 //     try {
-//         const { role: newRole } = req.body;  // "client" or "tasker"
+//         const {
+//             firstName,
+//             lastName,
+//             email,
+//             phone,
+//             postalCode,
+//             password,
+//             role,
+//             dob,
+//             address: street,
+//             city,
+//             province,
+//             language,
+//             about,
+//             travelDistance,
+//             idType,
+//             passportUrl,
+//             governmentIdFront,
+//             governmentIdBack,
+//             sin,
+//             issueDate,
+//             expiryDate,
+//             serviceCategories: categories,
+//             skills,
+//             experienceYears: yearsOfExperience,
+//             qualifications,
+//             services,
+//             certifications,
+//             backgroundCheckConsent,
+//             hasInsurance,
+//             availability,
+//             serviceAreas,
+//             profilePicture,
+//             accountHolder,
+//             accountNumber,
+//             routingNumber,
+//         } = req.body;
 
-//         if (!["client", "tasker"].includes(newRole)) {
+//         console.log(req.body);
+
+//         if (!["client", "tasker"].includes(role)) {
 //             return res.status(400).json({ message: "Invalid role type" });
 //         }
 
-//         // Decode token (adjust to your auth middleware)
-//         const token = req.cookies.token;
-//         if (!token) return res.status(401).json({ message: "Unauthorized" });
-
-//         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//         console.log("Decoded token:", decoded); // Debug: Log to confirm payload structure
-//         const userId = decoded.id || decoded.userId || decoded._id; // Flexible: try common keys
-//         if (!userId) return res.status(401).json({ message: "Invalid token payload" });
-
-//         const user = await User.findById(userId);
-//         if (!user) return res.status(404).json({ message: "User not found" });
-
-//         console.log("Authenticated user ID:", userId); // Debug log (remove in prod)
-
-//         if (user.currentRole === newRole) {
-//             return res.json({ message: "No change needed", user: { currentRole: user.currentRole, roles: user.roles } });
+//         // Check for existing email
+//         const existingEmail = await User.findOne({ email });
+//         if (existingEmail) {
+//             return res.status(400).json({ message: "Email already exists" });
 //         }
 
-//         if (newRole === "tasker") {
-//             // Check if "tasker" role is available
-//             if (!user.roles.includes("tasker")) {
-//                 user.roles.push("tasker");
-//             }
+//         // Check for existing phone number
+//         const existingPhone = await User.findOne({ phone });
+//         if (existingPhone) {
+//             return res.status(400).json({ message: "Phone number already exists" });
+//         }
 
-//             // Explicitly set rating and reviewCount to defaults for taskers to pass validation
-//             if (user.rating === null) {
-//                 user.rating = 0;
-//             }
-//             if (user.reviewCount === null) {
-//                 user.reviewCount = 0;
-//             }
+//         const hashedPassword = await bcrypt.hash(password, 10);
 
-//             // Validate required tasker fields
-//             const requiredFields = [
-//                 "about", "profilePicture", "dob", "yearsOfExperience", "categories",
-//                 "skills", "qualifications", "services", "certifications",
-//                 "backgroundCheckConsent", "hasInsurance", "availability", "serviceAreas",
-//                 "language", "travelDistance", "idType", "governmentId", "govIDBack",
-//             ];
+//         // Base user data
+//         const userData = {
+//             firstName,
+//             lastName,
+//             email,
+//             phone,
+//             postalCode,
+//             password: hashedPassword,
+//             roles: role === "tasker" ? ["client", "tasker"] : ["client"],
+//             currentRole: role,
+//         };
 
-//             const missingFields = [];
-//             for (const field of requiredFields) {
-//                 const value = user[field];
-//                 if (!value || (Array.isArray(value) && value.length === 0) || (typeof value === "string" && !value.trim())) {
-//                     missingFields.push(field);
-//                 }
-//             }
+//         if (role === "tasker") {
+//             userData.dob = dob ? new Date(dob) : undefined;
+//             userData.address = {
+//                 street: street || "",
+//                 city: city || "",
+//                 province: province || "",
+//                 postalCode,
+//             };
+//             userData.language = language;
+//             userData.about = about;
+//             userData.travelDistance = travelDistance;
+//             userData.idType = idType;
+//             userData.sin = sin;
+//             userData.issueDate = issueDate ? new Date(issueDate) : undefined;
+//             userData.expiryDate = expiryDate ? new Date(expiryDate) : undefined;
+//             userData.categories = categories;
+//             userData.skills = skills;
+//             userData.yearsOfExperience = yearsOfExperience;
+//             userData.qualifications = qualifications;
+//             userData.services = services;
+//             userData.certifications = certifications;
+//             userData.backgroundCheckConsent = backgroundCheckConsent;
+//             userData.hasInsurance = hasInsurance;
+//             userData.availability = availability;
+//             userData.serviceAreas = serviceAreas;
+//             userData.profilePicture = profilePicture;
+//             userData.accountHolder = accountHolder;
+//             userData.accountNumber = accountNumber;
+//             userData.routingNumber = routingNumber;
+//         }
 
+//         const user = await User.create(userData);
 
+//         let message = "Signup successful";
+//         let token = null;
 
-//             user.currentRole = "tasker";
+//         if (role === "tasker") {
+//             // For taskers, profile is under review
+//             message = "Tasker profile submitted successfully. Your profile is under review and will be approved by admin soon. You can login once approved.";
 //         } else {
-//             // Switch to client: always allowed
-//             if (!user.roles.includes("client")) {
-//                 user.roles.push("client");
-//             }
-//             user.currentRole = "client";
+//             // ✅ For clients, set login cookies AND send token in response
+//             token = createToken(user._id);
+//             const userAgent = req.headers['user-agent'];
+//             const cookieOpts = getCookieOptions(userAgent);
+
+//             res.cookie("token", token, cookieOpts.token);
+//             res.cookie("isLoggedIn", "true", cookieOpts.status);
 //         }
 
-//         await user.save();
-
-//         try {
-//             await createNotification(
-//                 userId,
-//                 "Role Switched Successfully",
-//                 `You have switched from ${previousRole} to ${newRole}. Explore your new features!`,
-//                 "role-switch"
-//             );
-//             console.log("Notification created for role switch"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-//         res.json({ message: "Role switched successfully", user: { currentRole: user.currentRole, roles: user.roles } });
-
-
+//         // ✅ Send token in response body for iOS/Safari fallback
+//         res.status(201).json({
+//             message,
+//             user: { ...user.toObject(), password: undefined },
+//             token // Will be null for taskers, valid token for clients
+//         });
 //     } catch (err) {
-//         console.error(err);
-//         res.status(500).json({ message: "Switch role failed", error: err.message });
+//         console.error("Signup error:", err);
+//         res.status(500).json({ message: "Signup failed", error: err.message });
 //     }
 // };
+
+// export const login = async (req, res) => {
+//     try {
+//         const { email, password } = req.body;
+
+//         const user = await User.findOne({ email });
+//         if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+//         // 🚫 Check if the user is blocked
+//         if (user.isBlocked) {
+//             return res.status(403).json({ message: "Your account has been blocked by the admin." });
+//         }
+
+//         // 🚫 Check if the user is a tasker under review
+//         if (user.roles.includes("tasker") && !user.taskerProfileCheck) {
+//             return res.status(403).json({ message: "Your tasker profile is under review. Please wait for admin approval." });
+//         }
+
+//         const match = await bcrypt.compare(password, user.password);
+//         if (!match) return res.status(400).json({ message: "Invalid credentials" });
+
+//         // ✅ Create token and set cookies with dynamic options
+//         const token = createToken(user._id);
+//         const userAgent = req.headers['user-agent'];
+//         const cookieOpts = getCookieOptions(userAgent);
+
+//         res.cookie("token", token, cookieOpts.token);
+//         res.cookie("isLoggedIn", "true", cookieOpts.status);
+
+//         // ✅ Send token in response body for iOS/Safari fallback
+//         res.status(200).json({
+//             message: "Login successful",
+//             user: { ...user.toObject(), password: undefined },
+//             token // For localStorage fallback on iOS/Safari
+//         });
+//     } catch (err) {
+//         console.error("Login error:", err);
+//         res.status(500).json({ message: "Login failed", error: err.message });
+//     }
+// };
+
+// export const logout = (req, res) => {
+//     console.log("Logout called, cookies before clear:", req.cookies);
+
+//     const userAgent = req.headers['user-agent'];
+//     const cookieOpts = getCookieOptions(userAgent);
+
+//     // ✅ Clear cookies with same options used to set them
+//     res.clearCookie("token", cookieOpts.token);
+//     res.clearCookie("isLoggedIn", cookieOpts.status);
+
+//     console.log("Cookies cleared");
+//     return res.status(200).json({ message: "Logout successful" });
+// };
+
+
 export const switchRole = async (req, res) => {
     try {
-        const { role: newRole } = req.body;  // "client" or "tasker"
-
+        const { role: newRole } = req.body;
         if (!["client", "tasker"].includes(newRole)) {
-            return res.status(400).json({ message: "Invalid role type" });
+            return res.status(400).json({ message: "Invalid role" });
         }
 
-        // Decode token (adjust to your auth middleware)
-        const token = req.cookies.token;
-        if (!token) return res.status(401).json({ message: "Unauthorized" });
+        console.log("this is the req body:", req.body)
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log("Decoded token:", decoded); // Debug: Log to confirm payload structure
-        const userId = decoded.id || decoded.userId || decoded._id; // Flexible: try common keys
-        if (!userId) return res.status(401).json({ message: "Invalid token payload" });
-
+        const userId = req.user.id;
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        console.log("Authenticated user ID:", userId); // Debug log (remove in prod)
-
         if (user.currentRole === newRole) {
-            return res.json({ message: "No change needed", user: { currentRole: user.currentRole, roles: user.roles } });
+            return res.json({ message: "Already in this role", currentRole: newRole });
         }
 
-        const previousRole = user.currentRole; // Track previous role for notification (moved here for scope)
-
         if (newRole === "tasker") {
-            // Check if "tasker" role is available
+            // CRITICAL: Only allow if approved
+            if (user.taskerStatus !== "approved") {
+                return res.status(403).json({
+                    message: "Your Tasker application is still under review.",
+                    taskerStatus: user.taskerStatus,
+                    // Optional: give more info
+                    ...(user.taskerStatus === "rejected" && {
+                        rejectionReason: user.taskerRejectionReason,
+                    }),
+                });
+            }
+
+            // Ensure tasker role exists
             if (!user.roles.includes("tasker")) {
                 user.roles.push("tasker");
             }
-
-            // Explicitly set rating and reviewCount to defaults for taskers to pass validation
-            if (user.rating === null) {
-                user.rating = 0;
-            }
-            if (user.reviewCount === null) {
-                user.reviewCount = 0;
-            }
-
-            // Validate required tasker fields
-            const requiredFields = [
-                "about", "profilePicture", "dob", "yearsOfExperience", "categories",
-                "skills", "qualifications", "services", "certifications",
-                "backgroundCheckConsent", "hasInsurance", "availability", "serviceAreas",
-                "language", "travelDistance", "idType", "governmentId", "govIDBack",
-            ];
-
-            const missingFields = [];
-            for (const field of requiredFields) {
-                const value = user[field];
-                if (!value || (Array.isArray(value) && value.length === 0) || (typeof value === "string" && !value.trim())) {
-                    missingFields.push(field);
-                }
-            }
-
-            // if (missingFields.length > 0) {
-            //     return res.status(400).json({
-            //         message: "Please complete your tasker profile first",
-            //         missingFields,
-            //     });
-            // }
-
             user.currentRole = "tasker";
         } else {
-            // Switch to client: always allowed
-            if (!user.roles.includes("client")) {
-                user.roles.push("client");
-            }
+            // Client switch always allowed
+            if (!user.roles.includes("client")) user.roles.push("client");
             user.currentRole = "client";
         }
 
         await user.save();
 
-        // Create notification for the role switch (BEFORE sending response)
-        try {
-            await createNotification(
-                userId,
-                "Role Switched Successfully",
-                `You have switched from ${previousRole} to ${newRole}. Explore your new features!`,
-                "role-switch"
-            );
-            console.log("Notification created for role switch"); // Debug
-        } catch (notifErr) {
-            console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-        }
-
-        res.json({ message: "Role switched successfully", user: { currentRole: user.currentRole, roles: user.roles } });
+        res.json({
+            message: "Role switched successfully",
+            currentRole: user.currentRole,
+            roles: user.roles,
+            taskerStatus: user.taskerStatus,
+        });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ message: "Switch role failed", error: err.message });
+        res.status(500).json({ message: "Switch failed" });
     }
 };
 
 
+
+
+export const submitTaskerApplication = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId).select("firstName lastName email taskerStatus roles");
+
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        console.log("Tasker application submission:", {
+            userId,
+            userName: `${user.firstName} ${user.lastName}`,
+            currentStatus: user.taskerStatus,
+            timestamp: new Date().toISOString()
+        });
+
+        // Handle resubmission based on current status
+        if (user.taskerStatus === "under_review") {
+            // Application already under review - send reminder notification
+            try {
+                await createNotification(
+                    userId,
+                    "⏳ Application Already Under Review",
+                    `Your tasker application is currently under review. We'll notify you as soon as a decision is made. Thank you for your patience!`,
+                    "application-reminder",
+                    userId
+                );
+                console.log("✅ Reminder notification sent - application already under review");
+            } catch (notifErr) {
+                console.error("❌ Failed to create reminder notification:", notifErr);
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Application already submitted and under review",
+                taskerStatus: user.taskerStatus
+            });
+        }
+
+        if (user.taskerStatus === "approved") {
+            // Already approved - send confirmation
+            try {
+                await createNotification(
+                    userId,
+                    "✅ You're Already a Tasker!",
+                    `You're already approved as a tasker! You can start accepting tasks and bookings right away. Switch to tasker mode to get started.`,
+                    "already-approved-reminder",
+                    userId
+                );
+                console.log("✅ Reminder notification sent - already approved");
+            } catch (notifErr) {
+                console.error("❌ Failed to create already approved notification:", notifErr);
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "You're already an approved tasker",
+                taskerStatus: user.taskerStatus
+            });
+        }
+
+        // Check if this is a reapplication after rejection
+        const isReapplication = user.taskerStatus === "rejected";
+
+        // Add tasker role + mark under review
+        if (!user.roles.includes("tasker")) {
+            user.roles.push("tasker");
+        }
+
+        user.taskerStatus = "under_review";
+        user.taskerAppliedAt = new Date();
+        user.taskerProfileCheck = true;
+
+        await user.save();
+
+        // Get user's full name for notifications
+        const applicantName = `${user.firstName} ${user.lastName}`;
+        const applicantEmail = user.email;
+
+        // Create notification for the applicant
+        try {
+            const applicantTitle = isReapplication
+                ? "🔄 Reapplication Submitted Successfully!"
+                : "📝 Application Submitted Successfully!";
+
+            const applicantMessage = isReapplication
+                ? `Your new tasker application has been submitted for review. We appreciate you giving it another try! Our team will review your updated application within 24-48 hours. You'll receive a notification once a decision is made.`
+                : `Thank you for applying to become a tasker! Your application is now under review. Our team will carefully evaluate your application within 24-48 hours. You'll receive a notification once a decision is made.`;
+
+            await createNotification(
+                userId,
+                applicantTitle,
+                applicantMessage,
+                isReapplication ? "application-resubmitted" : "application-submitted",
+                userId
+            );
+            console.log("✅ Confirmation notification sent to applicant");
+
+        } catch (notifErr) {
+            console.error("❌ Failed to create applicant notification (non-blocking):", notifErr);
+        }
+
+        // Send follow-up tips notification
+        try {
+            await createNotification(
+                userId,
+                "💡 While You Wait - Profile Tips",
+                `While your application is under review, make sure your profile is complete! Add a professional photo, write a compelling bio, and list your skills. A complete profile increases your chances of approval and attracts more clients!`,
+                "application-tips",
+                userId
+            );
+            console.log("✅ Tips notification sent to applicant");
+
+        } catch (notifErr) {
+            console.error("❌ Failed to create tips notification (non-blocking):", notifErr);
+        }
+
+        // Create notification for admin(s)
+        try {
+            // Find all admin users
+            const admins = await User.find({
+                roles: { $in: ["admin"] },
+                isActive: true
+            }).select("_id");
+
+            if (admins && admins.length > 0) {
+                const adminNotificationTitle = isReapplication
+                    ? "🔄 New Tasker Reapplication"
+                    : "🆕 New Tasker Application";
+
+                const adminNotificationMessage = isReapplication
+                    ? `${applicantName} (${applicantEmail}) has resubmitted their tasker application after a previous rejection. Please review their updated application.`
+                    : `${applicantName} (${applicantEmail}) has submitted a new tasker application. Please review and approve or reject the application.`;
+
+                // Send notification to each admin
+                for (const admin of admins) {
+                    await createNotification(
+                        admin._id,
+                        adminNotificationTitle,
+                        adminNotificationMessage,
+                        "new-tasker-application",
+                        userId // Link to the applicant's user ID
+                    );
+                }
+                console.log(`✅ Notification sent to ${admins.length} admin(s) about new application`);
+
+            } else {
+                console.warn("⚠️ No active admins found to notify about new application");
+            }
+
+        } catch (notifErr) {
+            console.error("❌ Failed to create admin notification (non-blocking):", notifErr);
+        }
+
+        // Send email notification (optional - if you have email service)
+        try {
+            // Uncomment and implement if you have email service
+            /*
+            await sendEmail({
+                to: user.email,
+                subject: isReapplication ? "Tasker Reapplication Received" : "Tasker Application Received",
+                template: "tasker-application-received",
+                data: {
+                    name: applicantName,
+                    isReapplication,
+                    reviewTime: "24-48 hours"
+                }
+            });
+            console.log("✅ Email notification sent to applicant");
+            */
+        } catch (emailErr) {
+            console.error("❌ Failed to send email notification (non-blocking):", emailErr);
+        }
+
+        // Track application metrics (optional)
+        try {
+            // Log application for analytics
+            console.log("Application metrics:", {
+                type: isReapplication ? "reapplication" : "new_application",
+                userId,
+                userName: applicantName,
+                email: applicantEmail,
+                timestamp: user.taskerAppliedAt,
+                previousStatus: isReapplication ? "rejected" : "none"
+            });
+        } catch (metricsErr) {
+            console.error("❌ Failed to log metrics (non-blocking):", metricsErr);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: isReapplication
+                ? "Reapplication submitted! Under review."
+                : "Application submitted! Under review.",
+            taskerStatus: "under_review",
+            reviewTimeframe: "24-48 hours",
+            tips: {
+                completeProfile: "Complete your profile for better approval chances",
+                addPhoto: "Add a professional profile photo",
+                addSkills: "List your relevant skills and experience"
+            }
+        });
+
+    } catch (err) {
+        console.error("❌ Submit tasker error:", err);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+};
+
+
+export const approveRejectTasker = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action, reason } = req.body; // action: "approve" or "reject"
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (action === "approve") {
+            user.taskerStatus = "approved";
+            user.taskerApprovedAt = new Date();
+        } else if (action === "reject") {
+            user.taskerStatus = "rejected";
+            user.taskerRejectedAt = new Date();
+            user.taskerRejectionReason = reason || "Did not meet requirements";
+        } else {
+            return res.status(400).json({ message: "Invalid action" });
+        }
+
+        await user.save();
+
+        // Optional: send notification to user
+        // await createNotification(...)
+
+        res.json({
+            success: true,
+            message: `Tasker ${action}d successfully`,
+            taskerStatus: user.taskerStatus,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
 // In controllers/userController.js
 
-// export const updateProfile = async (req, res) => {
-//     console.log("Received PUT /api/users/:id");
-//     console.log("Request body:", req.body);
-//     console.log("Authenticated user ID:", req.user?._id);
-//     console.log("Target user ID:", req.params.id);
-
-//     try {
-//         const userId = req.params.id;
-
-//         // 🔹 Find the user
-//         const user = await User.findById(userId);
-//         if (!user) {
-//             console.log("User not found for ID:", userId);
-//             return res.status(404).json({ error: "User not found" });
-//         }
-
-//         // 🔹 Preserve existing roles if not explicitly provided in request
-//         const { email, password, rating, reviewCount, roles, ...otherData } = req.body;
-//         let updateData = { ...otherData };
-
-//         // If roles are not provided or are invalid (e.g., [null], null, undefined), preserve existing
-//         if (!roles || (Array.isArray(roles) && (roles.length === 0 || roles.every(r => r === null || r === undefined)))) {
-//             updateData.roles = user.roles || ['client']; // Preserve or default safely
-//             console.log("Preserving roles:", updateData.roles);
-//         } else {
-//             // Validate incoming roles (optional: ensure they are valid strings)
-//             const validRoles = roles.filter(role => role && typeof role === 'string' && (role === 'client' || role === 'tasker'));
-//             updateData.roles = validRoles.length > 0 ? validRoles : user.roles || ['client'];
-//             console.log("Using incoming roles (validated):", updateData.roles);
-//         }
-
-//         // 🔹 Validate email uniqueness if provided
-//         if (email && email !== user.email) {
-//             const existingEmail = await User.findOne({ email });
-//             if (existingEmail) {
-//                 console.log("Email already in use:", email);
-//                 return res.status(400).json({ error: "Email already in use" });
-//             }
-//         }
-
-//         // 🔹 Prepare update data (exclude restricted fields, add email/password)
-//         if (email) updateData.email = email;
-//         if (password) {
-//             updateData.password = await bcrypt.hash(password, 10);
-//         }
-
-//         // 🔹 Update user safely
-//         // Disable schema validators for update (prevents "this.roles.includes" error)
-//         const updatedUser = await User.findByIdAndUpdate(
-//             userId,
-//             { $set: updateData },
-//             { new: true, runValidators: false } // ✅ changed to false to prevent query-validator crash
-//         );
-
-//         console.log("Updated user (roles):", updatedUser.roles);
-
-//         // 🔹 Create notification (non-blocking)
-//         try {
-//             await createNotification(
-//                 req.user?._id || userId,
-//                 "Profile Updated Successfully",
-//                 "Your tasker profile has been updated. You can now switch to tasker mode if all fields are complete.",
-//                 "profile-update"
-//             );
-//             console.log("Notification created for profile update");
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
-//         }
-
-//         return res.status(200).json({ message: "User updated", user: updatedUser });
-//     } catch (error) {
-//         console.error("Update user error:", error);
-//         return res.status(500).json({
-//             error: "Failed to update user",
-//             details: error.message,
-//         });
-//     }
-// };
-
-// Backend: Updated updateProfile handler (assuming this handles both PUT/PATCH for profile updates and role switches)
-// Add this to your user controller or route handler for /api/auth/users/:id (PATCH/PUT)
 
 
 export const updateProfile = async (req, res) => {

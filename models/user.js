@@ -34,6 +34,18 @@ const userSchema = new mongoose.Schema(
       required: true,
       default: "client",
     },
+
+    // NEW: Tasker approval flow
+    taskerStatus: {
+      type: String,
+      enum: ["not_applied", "under_review", "approved", "rejected"],
+      default: "not_applied",
+    },
+    taskerAppliedAt: { type: Date },
+    taskerApprovedAt: { type: Date },
+    taskerRejectedAt: { type: Date },
+    taskerRejectionReason: { type: String },
+    // -----------------------------------------------
     taskerProfileCheck: { type: Boolean, default: false },
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
@@ -42,6 +54,8 @@ const userSchema = new mongoose.Schema(
     postalCode: { type: String, required: true },
     password: { type: String, required: true },
     isBlocked: { type: Boolean, default: false },
+    stripeCustomerId: { type: String },
+    defaultPaymentMethod: { type: String },
 
     // Optional fields
     profilePicture: String,
