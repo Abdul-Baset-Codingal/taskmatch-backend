@@ -89,7 +89,7 @@ router.get("/bookings", getAllBookings);
 router.get("/bookings/user/:userId", getBookingsByUserId);
 router.patch("/bookings/:id", updateBooking);
 router.post("/reviews", verifyToken, addReview);
-router.delete("/bookings/:id", deleteBooking);
+router.delete("/bookings/:id", verifyToken, deleteBooking);
 // Fetch bookings by tasker ID
 router.get('/tasker/:taskerId', verifyToken, getBookingsByTaskerId);
 

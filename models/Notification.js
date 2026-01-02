@@ -88,7 +88,8 @@ const notificationSchema = new mongoose.Schema({
             "quote-deleted",
             "quote-delete-confirmed",
             "service-preparation",
-            // Quote bid related (NEW)
+
+            // Quote bid related
             "quote-bid-received",
             "quote-bid-submitted",
             "quote-bid-accepted",
@@ -107,8 +108,15 @@ const notificationSchema = new mongoose.Schema({
             "review",
             "review-prompt",
 
-            // User related
-            "role-switch"
+            // User/Profile related
+            "role-switch",
+            "profile-updated",
+
+            // Tasker Application related (NEW)
+            "tasker-application-submitted",
+            "tasker-application-approved",
+            "tasker-application-rejected",
+            "tasker-application-resubmitted"
         ]
     },
     relatedId: {

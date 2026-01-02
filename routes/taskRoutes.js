@@ -36,6 +36,8 @@ import {
   getMessageStatus,
   markMessagesAsReadSimple,
   getUnreadCount,
+  createSetupIntentForBid,
+  confirmBidPaymentSetup,
 } from "../controllers/taskController.js";
 import verifyToken from "../middlewares/verifyToken.js";
 import upload from "../utils/multerConfig.js";
@@ -79,6 +81,9 @@ router.post(
 );
 // Add this route
 router.post('/create-payment-intent', protectRoute, createPaymentIntent);
+router.post('/setup-intent-bid', verifyToken, createSetupIntentForBid);
+router.post('/confirm-bid-setup', verifyToken, confirmBidPaymentSetup);
+
 router.post('/setup-intent', protectRoute, createSetupIntent)
 router.post('/save-payment-method', protectRoute, savePaymentMethod)
 router.post("/:taskId/messages", verifyToken, addMessage);

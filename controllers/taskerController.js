@@ -1,17 +1,30 @@
+import Stripe from 'stripe';
 import mongoose from "mongoose";
 import BookingTasker from "../models/bookingTasker.js";
 import RequestQuote from "../models/requestQuote.js";
 import User from "../models/user.js";
 import { createNotification } from "./notificationHelper.js";
+import { validateTaskerCanReceivePayments, calculateFees } from "../utils/stripeConnect.js";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
 // Create Booking
 
 
 
-// const createBooking = async (req, res) => {
+
+
+
+
+//  const createBooking = async (req, res) => {
 //     try {
+//         console.log('=== CREATE BOOKING REQUEST ===');
 //         console.log('Raw Request Body:', JSON.stringify(req.body, null, 2));
-//         const { taskerId, service, date, dayOfWeek, paymentIntentId } = req.body;
+
+//         const { taskerId, service, date, dayOfWeek } = req.body;
 //         const clientId = req.user?.id;
+
+//         // ==================== BASIC VALIDATIONS ====================
 
 //         if (!clientId) {
 //             console.log('No clientId found in req.user');
@@ -31,37 +44,88 @@ import { createNotification } from "./notificationHelper.js";
 //             return res.status(400).json({ message: "Booking date and time are required" });
 //         }
 
-//         // Validate payment if paymentIntentId is provided
-//         if (paymentIntentId) {
-//             try {
-//                 const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-//                 console.log('Payment Intent Status:', paymentIntent.status);
+//         // ==================== VALIDATE USERS ====================
 
-//                 if (paymentIntent.status !== 'succeeded') {
-//                     return res.status(400).json({
-//                         message: 'Payment not completed',
-//                         paymentStatus: paymentIntent.status
-//                     });
-//                 }
+//         const tasker = await User.findById(taskerId);
+//         if (!tasker || tasker.currentRole !== "tasker") {
+//             return res.status(400).json({ message: "Tasker not found or invalid role" });
+//         }
 
-//                 const expectedAmount = Math.round(service.hourlyRate * 100);
-//                 if (paymentIntent.amount !== expectedAmount) {
-//                     return res.status(400).json({
-//                         message: 'Payment amount does not match service price',
-//                         expected: expectedAmount,
-//                         received: paymentIntent.amount
-//                     });
-//                 }
-//             } catch (paymentError) {
-//                 console.error('Error verifying payment:', paymentError);
+//         const client = await User.findById(clientId);
+//         if (!client || client.currentRole !== "client") {
+//             return res.status(400).json({ message: "Client not found or invalid role" });
+//         }
+
+//         // ==================== VALIDATE TASKER CAN RECEIVE PAYMENTS ====================
+
+//         let taskerStripeAccountId;
+//         try {
+//             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
+//             console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
+//         } catch (connectError) {
+//             console.error('❌ Tasker payment validation failed:', connectError.message);
+//             return res.status(400).json({
+//                 message: connectError.message,
+//                 code: 'TASKER_PAYMENT_NOT_SETUP',
+//                 action: 'The tasker needs to complete their payment setup before accepting bookings.'
+//             });
+//         }
+
+//         // ==================== VALIDATE CLIENT PAYMENT METHOD ====================
+
+//         if (!client.stripeCustomerId) {
+//             return res.status(400).json({
+//                 message: 'Please add a payment method first',
+//                 code: 'NO_CUSTOMER_ID',
+//                 action: 'Add a credit or debit card to proceed with booking.'
+//             });
+//         }
+
+//         if (!client.defaultPaymentMethod) {
+//             return res.status(400).json({
+//                 message: 'No saved payment method. Please add one.',
+//                 code: 'NO_PAYMENT_METHOD',
+//                 action: 'Add a credit or debit card to proceed with booking.'
+//             });
+//         }
+
+//         // Verify payment method is valid and attached to customer
+//         let customerId = client.stripeCustomerId;
+//         let paymentMethodId = client.defaultPaymentMethod;
+
+//         try {
+//             const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+
+//             console.log("=== PAYMENT METHOD DEBUG ===");
+//             console.log("Payment Method ID:", paymentMethodId);
+//             console.log("Payment Method belongs to customer:", paymentMethod.customer);
+//             console.log("User's stored stripeCustomerId:", customerId);
+
+//             if (!paymentMethod.customer) {
 //                 return res.status(400).json({
-//                     message: 'Invalid payment intent',
-//                     error: paymentError.message
+//                     message: 'Payment method is not properly set up. Please re-add your card.',
+//                     code: 'PAYMENT_METHOD_NOT_ATTACHED'
 //                 });
 //             }
-//         } else {
-//             console.log('No payment intent provided - creating booking without payment');
+
+//             // Fix customer ID mismatch if needed
+//             if (paymentMethod.customer !== customerId) {
+//                 console.log(`⚠️ MISMATCH! Updating customer ID from ${customerId} to ${paymentMethod.customer}`);
+//                 client.stripeCustomerId = paymentMethod.customer;
+//                 await client.save();
+//                 customerId = paymentMethod.customer;
+//             }
+//         } catch (pmError) {
+//             console.error("Error verifying payment method:", pmError);
+//             client.defaultPaymentMethod = null;
+//             await client.save();
+//             return res.status(400).json({
+//                 message: 'Your saved payment method is invalid or expired. Please add a new card.',
+//                 code: 'INVALID_PAYMENT_METHOD'
+//             });
 //         }
+
+//         // ==================== PARSE AND VALIDATE DATE ====================
 
 //         const bookingDate = new Date(date);
 //         console.log('Parsed bookingDate:', bookingDate, 'ISO:', bookingDate.toISOString());
@@ -71,37 +135,22 @@ import { createNotification } from "./notificationHelper.js";
 //             return res.status(400).json({ message: "Invalid date format" });
 //         }
 
-//         const tasker = await mongoose.models.User.findById(taskerId);
-//         if (!tasker || tasker.currentRole !== "tasker") {
-//             return res.status(400).json({ message: "Tasker not found or invalid role" });
+//         // Check if booking is in the past
+//         if (bookingDate < new Date()) {
+//             return res.status(400).json({ message: "Cannot book a time in the past" });
 //         }
 
-//         const client = await mongoose.models.User.findById(clientId);
-//         if (!client || client.currentRole !== "client") {
-//             return res.status(400).json({ message: "Client not found or invalid role" });
-//         }
+//         // ==================== VALIDATE AVAILABILITY ====================
 
-//         // ============ FIXED DAY NAME LOGIC ============
-//         // Helper function to get day name consistently
-//         const getDayNameFromDate = (dateObj) => {
-//             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-//             return days[dateObj.getDay()];
-//         };
-
-//         // Use dayOfWeek from frontend if provided, otherwise calculate from date
-//         // But be careful - if we calculate from date, we need to handle timezone
 //         let dayName;
 
 //         if (dayOfWeek) {
-//             // Trust the frontend's day calculation (since user selected it visually)
 //             dayName = dayOfWeek;
 //             console.log('Using dayOfWeek from frontend:', dayName);
 //         } else {
-//             // Fallback: Calculate from date string directly (parse without timezone conversion)
-//             // Extract date parts from ISO string to avoid timezone shift
 //             const dateParts = date.split('T')[0].split('-');
 //             const year = parseInt(dateParts[0]);
-//             const month = parseInt(dateParts[1]) - 1; // Months are 0-indexed
+//             const month = parseInt(dateParts[1]) - 1;
 //             const day = parseInt(dateParts[2]);
 //             const localDate = new Date(year, month, day);
 //             dayName = getDayNameFromDate(localDate);
@@ -109,9 +158,14 @@ import { createNotification } from "./notificationHelper.js";
 //         }
 
 //         console.log('Final dayName for availability check:', dayName);
-//         console.log('Tasker availability:', tasker.availability.map(a => a.day));
+//         console.log('Tasker availability:', tasker.availability?.map(a => a.day));
 
-//         // Case-insensitive comparison for availability
+//         if (!tasker.availability || tasker.availability.length === 0) {
+//             return res.status(400).json({
+//                 message: "Tasker has not set their availability",
+//             });
+//         }
+
 //         const availability = tasker.availability.find(slot =>
 //             slot.day.toLowerCase() === dayName.toLowerCase()
 //         );
@@ -127,10 +181,9 @@ import { createNotification } from "./notificationHelper.js";
 //                 }
 //             });
 //         }
-//         // ============ END FIXED LOGIC ============
 
-//         // Time validation - extract hours and minutes from the date string
-//         // to avoid timezone issues
+//         // ==================== VALIDATE TIME SLOT ====================
+
 //         const timePart = date.includes('T') ? date.split('T')[1] : null;
 //         let hours, minutes;
 
@@ -168,84 +221,847 @@ import { createNotification } from "./notificationHelper.js";
 //             });
 //         }
 
+//         // ==================== CHECK FOR CONFLICTING BOOKINGS ====================
+
+//         const startOfDay = new Date(bookingDate);
+//         startOfDay.setHours(0, 0, 0, 0);
+//         const endOfDay = new Date(bookingDate);
+//         endOfDay.setHours(23, 59, 59, 999);
+
+//         const existingBooking = await BookingTasker.findOne({
+//             tasker: taskerId,
+//             date: {
+//                 $gte: startOfDay,
+//                 $lte: endOfDay
+//             },
+//             status: { $in: ['pending', 'confirmed'] }
+//         });
+
+//         if (existingBooking) {
+//             const existingTime = new Date(existingBooking.date);
+//             const existingHours = existingTime.getHours();
+//             const existingMinutes = existingTime.getMinutes();
+
+//             // Check if times overlap (simple check - same hour)
+//             if (Math.abs(hours - existingHours) < 1) {
+//                 return res.status(400).json({
+//                     message: "This time slot is already booked. Please choose another time."
+//                 });
+//             }
+//         }
+
+//         // ==================== CALCULATE PAYMENT AMOUNTS ====================
+
+//         const amountInCents = Math.round(service.hourlyRate * 100);
+//         const { platformFee, taskerPayout } = calculateFees(amountInCents);
+
+//         console.log("💰 Booking payment breakdown:");
+//         console.log("  Service Rate: $", service.hourlyRate);
+//         console.log("  Amount in cents:", amountInCents);
+//         console.log("  Platform Fee (15%): $", platformFee / 100);
+//         console.log("  Tasker Payout (85%): $", taskerPayout / 100);
+//         console.log("  Tasker Stripe Account:", taskerStripeAccountId);
+
+//         // ==================== CREATE PAYMENT INTENT WITH STRIPE CONNECT ====================
+
+//         let paymentIntent;
+//         try {
+//             paymentIntent = await stripe.paymentIntents.create({
+//                 amount: amountInCents,
+//                 currency: 'cad',
+//                 customer: customerId,
+//                 payment_method: paymentMethodId,
+//                 capture_method: 'manual',  // HOLD - don't capture until service is completed
+//                 description: `Booking: ${service.title} with ${tasker.firstName} ${tasker.lastName}`,
+
+//                 // ⭐ STRIPE CONNECT - Automatic split
+//                 application_fee_amount: platformFee,  // 15% goes to Taskallo
+//                 transfer_data: {
+//                     destination: taskerStripeAccountId,  // 85% goes to Tasker
+//                 },
+
+//                 metadata: {
+//                     type: 'booking',
+//                     taskerId: taskerId.toString(),
+//                     clientId: clientId.toString(),
+//                     taskerName: `${tasker.firstName} ${tasker.lastName}`,
+//                     clientName: `${client.firstName} ${client.lastName}`,
+//                     serviceTitle: service.title,
+//                     serviceRate: service.hourlyRate.toString(),
+//                     platformFee: platformFee.toString(),
+//                     taskerPayout: taskerPayout.toString(),
+//                     bookingDate: bookingDate.toISOString(),
+//                 },
+
+//                 automatic_payment_methods: {
+//                     enabled: true,
+//                     allow_redirects: 'never'
+//                 },
+//                 confirm: true,  // Confirm immediately
+//             });
+
+//             console.log("✅ PaymentIntent created:", paymentIntent.id);
+//             console.log("   Status:", paymentIntent.status);
+
+//         } catch (stripeError) {
+//             console.error("❌ Stripe PaymentIntent creation failed:", stripeError);
+
+//             // Handle specific Stripe errors
+//             if (stripeError.type === 'StripeCardError') {
+//                 return res.status(400).json({
+//                     message: stripeError.message,
+//                     code: 'CARD_ERROR',
+//                     decline_code: stripeError.decline_code
+//                 });
+//             }
+
+//             if (stripeError.code === 'insufficient_funds') {
+//                 return res.status(400).json({
+//                     message: 'Insufficient funds on your card. Please try another card.',
+//                     code: 'INSUFFICIENT_FUNDS'
+//                 });
+//             }
+
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed. Please try again.',
+//                 code: 'PAYMENT_FAILED',
+//                 error: stripeError.message
+//             });
+//         }
+
+//         // Verify payment was authorized (held)
+//         if (paymentIntent.status !== 'requires_capture') {
+//             console.error("❌ Unexpected payment status:", paymentIntent.status);
+
+//             // Try to cancel the payment intent
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (e) {
+//                 console.error("Could not cancel PaymentIntent:", e);
+//             }
+
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed',
+//                 code: 'AUTHORIZATION_FAILED',
+//                 error: paymentIntent.last_payment_error?.message || 'Unknown error'
+//             });
+//         }
+
+//         // ==================== CREATE BOOKING ====================
+
 //         console.log('Creating Booking with:', {
 //             tasker: taskerId,
 //             client: clientId,
-//             service,
+//             service: service.title,
 //             date: bookingDate,
-//             paymentIntentId: paymentIntentId || null,
-//             status: paymentIntentId ? "confirmed" : "pending"
+//             paymentIntentId: paymentIntent.id,
+//             status: "confirmed"
 //         });
 
 //         const booking = new BookingTasker({
 //             tasker: taskerId,
 //             client: clientId,
-//             service,
+//             service: {
+//                 title: service.title,
+//                 description: service.description,
+//                 hourlyRate: service.hourlyRate,
+//                 estimatedDuration: service.estimatedDuration,
+//             },
 //             date: bookingDate,
-//             paymentIntentId: paymentIntentId || null,
-//             status: paymentIntentId ? "confirmed" : "pending",
 //             totalAmount: service.hourlyRate,
+//             status: "confirmed",
+//             confirmedAt: new Date(),
+
+//             // Payment Info (backward compatible)
+//             paymentIntentId: paymentIntent.id,
+//             stripeStatus: 'authorized',
+//             paymentMethod: paymentMethodId,
+
+//             // ⭐ NEW: Detailed payment breakdown
+//             payment: {
+//                 paymentIntentId: paymentIntent.id,
+//                 status: 'held',
+//                 grossAmount: amountInCents,
+//                 platformFee: platformFee,
+//                 taskerPayout: taskerPayout,
+//                 currency: 'cad',
+//                 authorizedAt: new Date(),
+//             },
+
+//             // Payment details for records
+//             paymentDetails: {
+//                 amountCaptured: 0,  // Will be updated when captured
+//                 currency: 'cad',
+//                 paymentMethodType: 'card',
+//                 billingDetails: {
+//                     name: `${client.firstName} ${client.lastName}`,
+//                     email: client.email,
+//                     phone: client.phone,
+//                 }
+//             },
 //         });
 
 //         await booking.save();
+//         console.log("✅ Booking saved:", booking._id);
+
+//         // ==================== POPULATE BOOKING FOR RESPONSE ====================
 
 //         const populatedBooking = await BookingTasker.findById(booking._id)
-//             .populate("tasker", "firstName lastName email phone profilePicture role")
-//             .populate("client", "firstName lastName phone role");
+//             .populate("tasker", "firstName lastName email phone profilePicture currentRole rating reviewCount")
+//             .populate("client", "firstName lastName email phone profilePicture currentRole");
 
-//         // Create notification for the tasker
+//         // ==================== SEND NOTIFICATIONS ====================
+
+//         const clientName = `${client.firstName} ${client.lastName}`;
+//         const taskerName = `${tasker.firstName} ${tasker.lastName}`;
+//         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
+//         const serviceAmount = service.hourlyRate.toFixed(2);
+
+//         // Format date for notifications
+//         const formattedDate = bookingDate.toLocaleDateString('en-US', {
+//             weekday: 'long',
+//             year: 'numeric',
+//             month: 'long',
+//             day: 'numeric',
+//             hour: '2-digit',
+//             minute: '2-digit'
+//         });
+
+//         // Notification for tasker
 //         try {
-//             const notificationMessage = paymentIntentId
-//                 ? `"${client.firstName} ${client.lastName}" has booked and paid for your service "${service.title}" for ${bookingDate.toLocaleString()}.`
-//                 : `"${client.firstName} ${client.lastName}" has requested to book your service "${service.title}" for ${bookingDate.toLocaleString()}. Please review and confirm.`;
-
 //             await createNotification(
 //                 taskerId,
-//                 paymentIntentId ? "New Confirmed Booking" : "New Booking Request",
-//                 notificationMessage,
-//                 "booking-request",
+//                 "🎉 New Confirmed Booking!",
+//                 `${clientName} has booked your service "${service.title}" on ${formattedDate}. Payment of $${serviceAmount} is held securely. You'll receive $${taskerPayoutFormatted} when the service is completed.`,
+//                 "booking-confirmed",
 //                 booking._id
 //             );
-//             console.log("Notification created for new booking");
+//             console.log("✅ Notification sent to tasker");
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
+//             console.error("❌ Tasker notification failed:", notifErr);
 //         }
 
-//         // Also notify the client
+//         // Notification for client
 //         try {
 //             await createNotification(
 //                 clientId,
-//                 paymentIntentId ? "Booking Confirmed" : "Booking Request Sent",
-//                 paymentIntentId
-//                     ? `Your booking for "${service.title}" with ${tasker.firstName} ${tasker.lastName} has been confirmed for ${bookingDate.toLocaleString()}.`
-//                     : `Your booking request for "${service.title}" with ${tasker.firstName} ${tasker.lastName} has been sent for ${bookingDate.toLocaleString()}.`,
-//                 "booking-confirmation",
+//                 "✅ Booking Confirmed!",
+//                 `Your booking for "${service.title}" with ${taskerName} on ${formattedDate} has been confirmed. A hold of $${serviceAmount} has been placed on your card and will be charged when the service is completed.`,
+//                 "booking-confirmed",
 //                 booking._id
 //             );
+//             console.log("✅ Notification sent to client");
 //         } catch (notifErr) {
-//             console.error("Failed to create client notification:", notifErr);
+//             console.error("❌ Client notification failed:", notifErr);
 //         }
 
+//         // ==================== SEND RESPONSE ====================
+
 //         res.status(201).json({
-//             message: paymentIntentId
-//                 ? "Booking created and confirmed successfully"
-//                 : "Booking request created successfully",
-//             booking: populatedBooking
+//             success: true,
+//             message: "Booking created and confirmed successfully",
+//             booking: populatedBooking,
+//             paymentBreakdown: {
+//                 total: service.hourlyRate,
+//                 totalInCents: amountInCents,
+//                 platformFee: platformFee / 100,
+//                 platformFeeInCents: platformFee,
+//                 taskerPayout: taskerPayout / 100,
+//                 taskerPayoutInCents: taskerPayout,
+//                 currency: 'cad',
+//                 status: 'held',  // Money is held, not captured yet
+//             },
+//             paymentInfo: {
+//                 paymentIntentId: paymentIntent.id,
+//                 status: paymentIntent.status,
+//                 message: 'Payment is authorized and held. It will be captured when the service is completed.',
+//             }
 //         });
+
 //     } catch (error) {
-//         console.error("Error creating booking:", error);
-//         res.status(500).json({ message: "Server error" });
+//         console.error("❌ Error creating booking:", error);
+
+//         // If it's a validation error, return specific message
+//         if (error.name === 'ValidationError') {
+//             const messages = Object.values(error.errors).map(e => e.message);
+//             return res.status(400).json({
+//                 message: messages.join(', '),
+//                 code: 'VALIDATION_ERROR'
+//             });
+//         }
+
+//         res.status(500).json({
+//             message: "Server error while creating booking",
+//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//         });
 //     }
 // };
 
+
+
+// Fee constants
+const PLATFORM_FEE_PERCENT = 0.15;  // 15%
+const TAX_PERCENT = 0.13;           // 13% HST
+
+const calculateDoubleSidedFees = (bidAmountInCents) => {
+    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
+    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
+    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taskerPayout = bidAmountInCents - taskerPlatformFee;
+    const applicationFee = totalClientPays - taskerPayout;
+
+    return {
+        bidAmountInCents,
+        clientPlatformFee,
+        taxOnClientFee,
+        totalClientPays,
+        taskerPlatformFee,
+        taskerPayout,
+        applicationFee
+    };
+};
+
+// const createBooking = async (req, res) => {
+
+//     let paymentIntent = null;
+
+//     try {
+//         console.log('=== CREATE BOOKING REQUEST ===');
+//         console.log('Raw Request Body:', JSON.stringify(req.body, null, 2));
+
+//         const { taskerId, service, date, dayOfWeek, paymentMethodId: providedPaymentMethodId } = req.body;
+//         const clientId = req.user?.id;
+
+//         // ==================== BASIC VALIDATIONS ====================
+
+//         if (!clientId) {
+//             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
+//         }
+
+//         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
+//             return res.status(400).json({ message: "Invalid tasker or client ID" });
+//         }
+
+//         if (!service || !service.title || !service.description || !service.hourlyRate || !service.estimatedDuration) {
+//             return res.status(400).json({ message: "Service details are required" });
+//         }
+
+//         if (!date) {
+//             return res.status(400).json({ message: "Booking date and time are required" });
+//         }
+
+//         // ==================== VALIDATE USERS ====================
+
+//         const tasker = await User.findById(taskerId);
+//         if (!tasker || tasker.currentRole !== "tasker") {
+//             return res.status(400).json({ message: "Tasker not found or invalid role" });
+//         }
+
+//         const client = await User.findById(clientId);
+//         if (!client || client.currentRole !== "client") {
+//             return res.status(400).json({ message: "Client not found or invalid role" });
+//         }
+
+//         // ==================== VALIDATE TASKER CAN RECEIVE PAYMENTS ====================
+
+//         let taskerStripeAccountId;
+//         try {
+//             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
+//             console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
+//         } catch (connectError) {
+//             return res.status(400).json({
+//                 message: connectError.message,
+//                 code: 'TASKER_PAYMENT_NOT_SETUP',
+//             });
+//         }
+
+//         // ==================== ⭐ HANDLE PAYMENT METHOD ====================
+
+//         let paymentMethodId = providedPaymentMethodId;
+//         let customerId = client.stripeCustomerId;
+
+//         console.log("=== PAYMENT METHOD DEBUG ===");
+//         console.log("Provided Payment Method ID:", providedPaymentMethodId);
+//         console.log("Client's stored stripeCustomerId:", customerId);
+//         console.log("Client's stored defaultPaymentMethod:", client.defaultPaymentMethod);
+//         console.log("Client's stored defaultPaymentMethodId:", client.defaultPaymentMethodId);
+
+//         // If no payment method provided, try to use the saved one
+//         if (!paymentMethodId) {
+//             paymentMethodId = client.defaultPaymentMethod || client.defaultPaymentMethodId;
+//         }
+
+//         if (!paymentMethodId) {
+//             return res.status(400).json({
+//                 message: 'No payment method provided. Please add a card.',
+//                 code: 'NO_PAYMENT_METHOD',
+//             });
+//         }
+
+//         // ⭐ STEP 1: Ensure we have a Stripe Customer
+//         if (!customerId) {
+//             console.log("Creating new Stripe Customer for client...");
+//             try {
+//                 const customer = await stripe.customers.create({
+//                     email: client.email,
+//                     name: `${client.firstName} ${client.lastName}`,
+//                     metadata: {
+//                         userId: client._id.toString(),
+//                         platform: 'taskallo'
+//                     }
+//                 });
+//                 customerId = customer.id;
+//                 client.stripeCustomerId = customerId;
+//                 await client.save();
+//                 console.log("✅ Created new Stripe Customer:", customerId);
+//             } catch (customerError) {
+//                 console.error("❌ Failed to create Stripe Customer:", customerError);
+//                 return res.status(400).json({
+//                     message: 'Failed to set up payment. Please try again.',
+//                     code: 'CUSTOMER_CREATION_FAILED',
+//                 });
+//             }
+//         }
+
+//         // ⭐ STEP 2: Retrieve and validate payment method
+//         let paymentMethod;
+//         try {
+//             paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+//             console.log("✅ Payment method retrieved:", paymentMethodId);
+//             console.log("   Type:", paymentMethod.type);
+//             console.log("   Card brand:", paymentMethod.card?.brand);
+//             console.log("   Last 4:", paymentMethod.card?.last4);
+//             console.log("   Attached to customer:", paymentMethod.customer);
+//         } catch (pmRetrieveError) {
+//             console.error("❌ Failed to retrieve payment method:", pmRetrieveError);
+
+//             // Clear invalid payment method from client record
+//             client.defaultPaymentMethod = null;
+//             client.defaultPaymentMethodId = null;
+//             await client.save();
+
+//             return res.status(400).json({
+//                 message: 'Payment method not found or invalid. Please add a new card.',
+//                 code: 'PAYMENT_METHOD_NOT_FOUND',
+//                 debug: process.env.NODE_ENV === 'development' ? {
+//                     providedId: paymentMethodId,
+//                     error: pmRetrieveError.message
+//                 } : undefined
+//             });
+//         }
+
+//         // ⭐ STEP 3: Attach payment method to customer if not already attached
+//         if (!paymentMethod.customer) {
+//             console.log("Payment method not attached to any customer. Attaching...");
+//             try {
+//                 await stripe.paymentMethods.attach(paymentMethodId, {
+//                     customer: customerId,
+//                 });
+//                 console.log("✅ Payment method attached to customer:", customerId);
+//             } catch (attachError) {
+//                 console.error("❌ Failed to attach payment method:", attachError);
+
+//                 // If attachment fails, the payment method might already be attached elsewhere
+//                 if (attachError.code === 'resource_already_exists') {
+//                     console.log("Payment method already attached to another customer");
+//                 }
+
+//                 return res.status(400).json({
+//                     message: 'Failed to set up payment method. Please try a different card.',
+//                     code: 'PAYMENT_METHOD_ATTACH_FAILED',
+//                 });
+//             }
+//         } else if (paymentMethod.customer !== customerId) {
+//             // Payment method attached to different customer - update our records
+//             console.log(`⚠️ Payment method attached to different customer: ${paymentMethod.customer}`);
+//             console.log(`   Updating client's stripeCustomerId from ${customerId} to ${paymentMethod.customer}`);
+//             customerId = paymentMethod.customer;
+//             client.stripeCustomerId = customerId;
+//         }
+
+//         // ⭐ STEP 4: Update client's payment records
+//         client.stripeCustomerId = customerId;
+//         client.defaultPaymentMethod = paymentMethodId;
+//         client.defaultPaymentMethodId = paymentMethodId;
+//         await client.save();
+//         console.log("✅ Client payment info updated");
+
+//         // ==================== PARSE AND VALIDATE DATE ====================
+
+//         const bookingDate = new Date(date);
+//         console.log('Parsed bookingDate:', bookingDate, 'ISO:', bookingDate.toISOString());
+
+//         if (isNaN(bookingDate.getTime())) {
+//             return res.status(400).json({ message: "Invalid date format" });
+//         }
+
+//         if (bookingDate < new Date()) {
+//             return res.status(400).json({ message: "Cannot book a time in the past" });
+//         }
+
+//         // ==================== VALIDATE AVAILABILITY ====================
+
+//         let dayName;
+
+//         if (dayOfWeek) {
+//             dayName = dayOfWeek;
+//         } else {
+//             const dateParts = date.split('T')[0].split('-');
+//             const year = parseInt(dateParts[0]);
+//             const month = parseInt(dateParts[1]) - 1;
+//             const day = parseInt(dateParts[2]);
+//             const localDate = new Date(year, month, day);
+//             dayName = getDayNameFromDate(localDate);
+//         }
+
+//         console.log('Final dayName for availability check:', dayName);
+
+//         if (!tasker.availability || tasker.availability.length === 0) {
+//             return res.status(400).json({
+//                 message: "Tasker has not set their availability",
+//             });
+//         }
+
+//         const availability = tasker.availability.find(slot =>
+//             slot.day.toLowerCase() === dayName.toLowerCase()
+//         );
+
+//         if (!availability) {
+//             return res.status(400).json({
+//                 message: `Tasker is not available on ${dayName}`,
+//             });
+//         }
+
+//         // ==================== VALIDATE TIME SLOT ====================
+
+//         const timePart = date.includes('T') ? date.split('T')[1] : null;
+//         let hours, minutes;
+
+//         if (timePart) {
+//             const timeMatch = timePart.match(/(\d{2}):(\d{2})/);
+//             if (timeMatch) {
+//                 hours = parseInt(timeMatch[1]);
+//                 minutes = parseInt(timeMatch[2]);
+//             } else {
+//                 hours = bookingDate.getHours();
+//                 minutes = bookingDate.getMinutes();
+//             }
+//         } else {
+//             hours = bookingDate.getHours();
+//             minutes = bookingDate.getMinutes();
+//         }
+
+//         const [startHour, startMinute] = availability.from.split(':').map(Number);
+//         const [endHour, endMinute] = availability.to.split(':').map(Number);
+//         const bookingTimeInMinutes = hours * 60 + minutes;
+//         const startTimeInMinutes = startHour * 60 + startMinute;
+//         const endTimeInMinutes = endHour * 60 + endMinute;
+
+//         if (bookingTimeInMinutes < startTimeInMinutes || bookingTimeInMinutes >= endTimeInMinutes) {
+//             return res.status(400).json({
+//                 message: `Booking time must be between ${availability.from} and ${availability.to} on ${dayName}`
+//             });
+//         }
+
+//         // ==================== CHECK FOR CONFLICTING BOOKINGS ====================
+
+//         const startOfDay = new Date(bookingDate);
+//         startOfDay.setHours(0, 0, 0, 0);
+//         const endOfDay = new Date(bookingDate);
+//         endOfDay.setHours(23, 59, 59, 999);
+
+//         const existingBooking = await BookingTasker.findOne({
+//             tasker: taskerId,
+//             date: { $gte: startOfDay, $lte: endOfDay },
+//             status: { $in: ['pending', 'confirmed'] }
+//         });
+
+//         if (existingBooking) {
+//             const existingTime = new Date(existingBooking.date);
+//             const existingHours = existingTime.getHours();
+
+//             if (Math.abs(hours - existingHours) < 1) {
+//                 return res.status(400).json({
+//                     message: "This time slot is already booked. Please choose another time."
+//                 });
+//             }
+//         }
+
+//         // ==================== CALCULATE DOUBLE-SIDED FEES ====================
+
+//         const serviceAmountInCents = Math.round(service.hourlyRate * 100);
+//         const fees = calculateDoubleSidedFees(serviceAmountInCents);
+
+//         console.log("💰 DOUBLE-SIDED FEE Booking Payment Breakdown:");
+//         console.log(`   Service Rate:         $${(serviceAmountInCents / 100).toFixed(2)}`);
+//         console.log(`   Client Fee (15%):     $${(fees.clientPlatformFee / 100).toFixed(2)}`);
+//         console.log(`   Tax (13% HST):        $${(fees.taxOnClientFee / 100).toFixed(2)}`);
+//         console.log(`   TOTAL CLIENT PAYS:    $${(fees.totalClientPays / 100).toFixed(2)}`);
+//         console.log(`   Tasker Fee (15%):    -$${(fees.taskerPlatformFee / 100).toFixed(2)}`);
+//         console.log(`   TASKER RECEIVES:      $${(fees.taskerPayout / 100).toFixed(2)}`);
+//         console.log(`   PLATFORM KEEPS:       $${(fees.applicationFee / 100).toFixed(2)}`);
+
+//         if (fees.totalClientPays < 50) {
+//             return res.status(400).json({
+//                 message: 'Minimum service amount is $0.50 CAD',
+//                 code: 'AMOUNT_TOO_SMALL'
+//             });
+//         }
+
+//         // ==================== CREATE PAYMENT INTENT ====================
+
+//         console.log("Creating PaymentIntent...");
+//         console.log("   Customer ID:", customerId);
+//         console.log("   Payment Method ID:", paymentMethodId);
+//         console.log("   Amount:", fees.totalClientPays);
+//         console.log("   Application Fee:", fees.applicationFee);
+//         console.log("   Destination:", taskerStripeAccountId);
+
+//         try {
+//             paymentIntent = await stripe.paymentIntents.create({
+//                 amount: fees.totalClientPays,
+//                 currency: 'cad',
+//                 customer: customerId,
+//                 payment_method: paymentMethodId,
+//                 capture_method: 'manual',
+
+//                 description: `Booking: ${service.title} with ${tasker.firstName} ${tasker.lastName}`,
+
+//                 application_fee_amount: fees.applicationFee,
+
+//                 transfer_data: {
+//                     destination: taskerStripeAccountId,
+//                 },
+
+//                 metadata: {
+//                     type: 'booking',
+//                     taskerId: taskerId.toString(),
+//                     clientId: clientId.toString(),
+//                     serviceTitle: service.title,
+//                     serviceRate: (serviceAmountInCents / 100).toString(),
+//                     totalClientPays: (fees.totalClientPays / 100).toString(),
+//                     taskerPayout: (fees.taskerPayout / 100).toString(),
+//                     feeStructure: 'double-sided-15-percent',
+//                 },
+
+//                 automatic_payment_methods: {
+//                     enabled: true,
+//                     allow_redirects: 'never'
+//                 },
+//                 confirm: true,
+//             });
+
+//             console.log("✅ PaymentIntent created:", paymentIntent.id);
+//             console.log("   Status:", paymentIntent.status);
+
+//         } catch (stripeError) {
+//             console.error("❌ Stripe PaymentIntent creation failed:", stripeError);
+//             console.error("   Error code:", stripeError.code);
+//             console.error("   Error type:", stripeError.type);
+//             console.error("   Error message:", stripeError.message);
+
+//             if (stripeError.type === 'StripeCardError') {
+//                 return res.status(400).json({
+//                     message: stripeError.message,
+//                     code: 'CARD_ERROR',
+//                     decline_code: stripeError.decline_code
+//                 });
+//             }
+
+//             if (stripeError.code === 'payment_method_not_attached') {
+//                 return res.status(400).json({
+//                     message: 'Payment method is not properly set up. Please re-add your card.',
+//                     code: 'PAYMENT_METHOD_NOT_ATTACHED'
+//                 });
+//             }
+
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed: ' + stripeError.message,
+//                 code: 'PAYMENT_FAILED',
+//             });
+//         }
+
+//         // Verify payment was authorized
+//         if (paymentIntent.status !== 'requires_capture') {
+//             console.error("❌ Unexpected payment status:", paymentIntent.status);
+
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (e) {
+//                 console.error("Could not cancel PaymentIntent:", e);
+//             }
+
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed',
+//                 code: 'AUTHORIZATION_FAILED',
+//                 error: paymentIntent.last_payment_error?.message || 'Unknown error'
+//             });
+//         }
+
+//         // ==================== CREATE BOOKING ====================
+
+//         const booking = new BookingTasker({
+//             tasker: taskerId,
+//             client: clientId,
+//             service: {
+//                 title: service.title,
+//                 description: service.description,
+//                 hourlyRate: service.hourlyRate,
+//                 estimatedDuration: service.estimatedDuration,
+//             },
+//             date: bookingDate,
+//             totalAmount: service.hourlyRate,
+//             status: "confirmed",
+//             confirmedAt: new Date(),
+
+//             paymentIntentId: paymentIntent.id,
+//             stripeStatus: 'authorized',
+//             paymentMethod: paymentMethodId,
+
+//             payment: {
+//                 paymentIntentId: paymentIntent.id,
+//                 status: 'held',
+//                 currency: 'cad',
+//                 authorizedAt: new Date(),
+//                 feeStructure: 'double-sided-15-percent',
+
+//                 serviceAmountCents: serviceAmountInCents,
+//                 clientPlatformFeeCents: fees.clientPlatformFee,
+//                 taxOnClientFeeCents: fees.taxOnClientFee,
+//                 totalClientPaysCents: fees.totalClientPays,
+//                 taskerPlatformFeeCents: fees.taskerPlatformFee,
+//                 taskerPayoutCents: fees.taskerPayout,
+//                 applicationFeeCents: fees.applicationFee,
+
+//                 serviceAmount: serviceAmountInCents / 100,
+//                 clientPlatformFee: fees.clientPlatformFee / 100,
+//                 taxOnClientFee: fees.taxOnClientFee / 100,
+//                 totalClientPays: fees.totalClientPays / 100,
+//                 taskerPlatformFee: fees.taskerPlatformFee / 100,
+//                 taskerPayout: fees.taskerPayout / 100,
+//                 applicationFee: fees.applicationFee / 100,
+//             },
+
+//             paymentDetails: {
+//                 amountCaptured: 0,
+//                 currency: 'cad',
+//                 paymentMethodType: 'card',
+//                 billingDetails: {
+//                     name: `${client.firstName} ${client.lastName}`,
+//                     email: client.email,
+//                     phone: client.phone,
+//                 }
+//             },
+//         });
+
+//         try {
+//             await booking.save();
+//             console.log("✅ Booking saved:", booking._id);
+//         } catch (dbError) {
+//             console.error("❌ Database error, cancelling PaymentIntent:", dbError);
+
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (cancelError) {
+//                 console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+//             }
+
+//             return res.status(500).json({
+//                 message: 'Failed to save booking. Payment was not charged.',
+//                 code: 'DATABASE_ERROR'
+//             });
+//         }
+
+//         // ==================== POPULATE AND RESPOND ====================
+
+//         const populatedBooking = await BookingTasker.findById(booking._id)
+//             .populate("tasker", "firstName lastName email phone profilePicture currentRole rating reviewCount")
+//             .populate("client", "firstName lastName email phone profilePicture currentRole");
+
+//         // Send notifications (non-blocking)
+//         const clientName = `${client.firstName} ${client.lastName}`;
+//         const taskerName = `${tasker.firstName} ${tasker.lastName}`;
+
+//         const formattedDate = bookingDate.toLocaleDateString('en-US', {
+//             weekday: 'long',
+//             year: 'numeric',
+//             month: 'long',
+//             day: 'numeric',
+//             hour: '2-digit',
+//             minute: '2-digit'
+//         });
+
+//         try {
+//             await createNotification(
+//                 taskerId,
+//                 "🎉 New Confirmed Booking!",
+//                 `${clientName} has booked "${service.title}" on ${formattedDate}. You'll receive $${(fees.taskerPayout / 100).toFixed(2)} upon completion.`,
+//                 "booking-confirmed",
+//                 booking._id
+//             );
+//         } catch (e) { console.error("Notification error:", e); }
+
+//         try {
+//             await createNotification(
+//                 clientId,
+//                 "✅ Booking Confirmed!",
+//                 `Your booking for "${service.title}" with ${taskerName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)}`,
+//                 "booking-confirmed",
+//                 booking._id
+//             );
+//         } catch (e) { console.error("Notification error:", e); }
+
+//         res.status(201).json({
+//             success: true,
+//             message: "Booking created and confirmed successfully",
+//             booking: populatedBooking,
+//             paymentBreakdown: {
+//                 serviceAmount: serviceAmountInCents / 100,
+//                 clientPlatformFee: fees.clientPlatformFee / 100,
+//                 taxOnClientFee: fees.taxOnClientFee / 100,
+//                 totalClientPays: fees.totalClientPays / 100,
+//                 taskerPlatformFee: fees.taskerPlatformFee / 100,
+//                 taskerPayout: fees.taskerPayout / 100,
+//                 platformTotal: fees.applicationFee / 100,
+//                 currency: 'cad',
+//                 status: 'held',
+//             },
+//         });
+
+//     } catch (error) {
+//         console.error("❌ Error creating booking:", error);
+
+//         if (paymentIntent?.id) {
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (cancelError) {
+//                 console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+//             }
+//         }
+
+//         res.status(500).json({
+//             message: "Server error while creating booking",
+//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//         });
+//     }
+// };
+
+
+// Get All Bookings
 const createBooking = async (req, res) => {
+    let paymentIntent = null;
+
     try {
+        console.log('=== CREATE BOOKING REQUEST ===');
         console.log('Raw Request Body:', JSON.stringify(req.body, null, 2));
-        const { taskerId, service, date, dayOfWeek, paymentIntentId } = req.body;
+
+        const { taskerId, service, date, dayOfWeek, paymentMethodId: providedPaymentMethodId } = req.body;
         const clientId = req.user?.id;
 
+        // ==================== BASIC VALIDATIONS ====================
+
         if (!clientId) {
-            console.log('No clientId found in req.user');
             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
         }
 
@@ -258,71 +1074,211 @@ const createBooking = async (req, res) => {
         }
 
         if (!date) {
-            console.log('Date missing in request body');
             return res.status(400).json({ message: "Booking date and time are required" });
         }
 
-        // Validate payment if paymentIntentId is provided
-        if (paymentIntentId) {
+        // ==================== VALIDATE USERS ====================
+
+        const tasker = await User.findById(taskerId);
+        if (!tasker || tasker.currentRole !== "tasker") {
+            return res.status(400).json({ message: "Tasker not found or invalid role" });
+        }
+
+        // ✅ UPDATED: Added 'address' to the select fields
+        const client = await User.findById(clientId).select('+address');
+        if (!client || client.currentRole !== "client") {
+            return res.status(400).json({ message: "Client not found or invalid role" });
+        }
+
+        // ==================== VALIDATE TASKER CAN RECEIVE PAYMENTS ====================
+
+        let taskerStripeAccountId;
+        try {
+            taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
+            console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
+        } catch (connectError) {
+            return res.status(400).json({
+                message: connectError.message,
+                code: 'TASKER_PAYMENT_NOT_SETUP',
+            });
+        }
+
+        // ==================== ⭐ HANDLE PAYMENT METHOD ====================
+
+        let paymentMethodId = providedPaymentMethodId;
+        let customerId = client.stripeCustomerId;
+
+        console.log("=== PAYMENT METHOD DEBUG ===");
+        console.log("Provided Payment Method ID:", providedPaymentMethodId);
+        console.log("Client's stored stripeCustomerId:", customerId);
+        console.log("Client's stored defaultPaymentMethod:", client.defaultPaymentMethod);
+        console.log("Client's stored defaultPaymentMethodId:", client.defaultPaymentMethodId);
+
+        // If no payment method provided, try to use the saved one
+        if (!paymentMethodId) {
+            paymentMethodId = client.defaultPaymentMethod || client.defaultPaymentMethodId;
+        }
+
+        if (!paymentMethodId) {
+            return res.status(400).json({
+                message: 'No payment method provided. Please add a card.',
+                code: 'NO_PAYMENT_METHOD',
+            });
+        }
+
+        // ⭐ STEP 1: Ensure we have a Stripe Customer
+        if (!customerId) {
+            console.log("Creating new Stripe Customer for client...");
             try {
-                const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-                console.log('Payment Intent Status:', paymentIntent.status);
-
-                if (paymentIntent.status !== 'succeeded') {
-                    return res.status(400).json({
-                        message: 'Payment not completed',
-                        paymentStatus: paymentIntent.status
-                    });
-                }
-
-                const expectedAmount = Math.round(service.hourlyRate * 100);
-                if (paymentIntent.amount !== expectedAmount) {
-                    return res.status(400).json({
-                        message: 'Payment amount does not match service price',
-                        expected: expectedAmount,
-                        received: paymentIntent.amount
-                    });
-                }
-            } catch (paymentError) {
-                console.error('Error verifying payment:', paymentError);
+                // ✅ UPDATED: Added more details when creating customer
+                const customerName = `${client.firstName} ${client.lastName}`.trim();
+                const customer = await stripe.customers.create({
+                    email: client.email,
+                    name: customerName,
+                    phone: client.phone || undefined,
+                    description: `Client - ${customerName}`,
+                    metadata: {
+                        userId: client._id.toString(),
+                        platform: 'taskallo',
+                        userType: 'client',
+                        firstName: client.firstName || '',
+                        lastName: client.lastName || '',
+                    },
+                    // ✅ NEW: Add address if available
+                    ...(client.address && {
+                        address: {
+                            line1: client.address.street || client.address.line1 || '',
+                            city: client.address.city || '',
+                            state: client.address.province || client.address.state || '',
+                            postal_code: client.address.postalCode || client.address.postal_code || '',
+                            country: client.address.country || 'CA',
+                        },
+                    }),
+                });
+                customerId = customer.id;
+                client.stripeCustomerId = customerId;
+                await client.save();
+                console.log("✅ Created new Stripe Customer:", customerId);
+            } catch (customerError) {
+                console.error("❌ Failed to create Stripe Customer:", customerError);
                 return res.status(400).json({
-                    message: 'Invalid payment intent',
-                    error: paymentError.message
+                    message: 'Failed to set up payment. Please try again.',
+                    code: 'CUSTOMER_CREATION_FAILED',
                 });
             }
         } else {
-            console.log('No payment intent provided - creating booking without payment');
+            // ✅ NEW: Update existing Stripe customer with latest details
+            try {
+                const customerName = `${client.firstName} ${client.lastName}`.trim();
+                await stripe.customers.update(customerId, {
+                    name: customerName || undefined,
+                    email: client.email || undefined,
+                    phone: client.phone || undefined,
+                    description: `Client - ${customerName}`,
+                    metadata: {
+                        platform: 'taskallo',
+                        userId: client._id.toString(),
+                        userType: 'client',
+                        firstName: client.firstName || '',
+                        lastName: client.lastName || '',
+                    },
+                    ...(client.address && {
+                        address: {
+                            line1: client.address.street || client.address.line1 || '',
+                            city: client.address.city || '',
+                            state: client.address.province || client.address.state || '',
+                            postal_code: client.address.postalCode || client.address.postal_code || '',
+                            country: client.address.country || 'CA',
+                        },
+                    }),
+                });
+                console.log('✅ Stripe customer updated with latest details');
+            } catch (updateErr) {
+                console.error('⚠️ Failed to update Stripe customer (non-blocking):', updateErr.message);
+                // Don't fail the booking, just log the error
+            }
         }
+
+        // ⭐ STEP 2: Retrieve and validate payment method
+        let paymentMethod;
+        try {
+            paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+            console.log("✅ Payment method retrieved:", paymentMethodId);
+            console.log("   Type:", paymentMethod.type);
+            console.log("   Card brand:", paymentMethod.card?.brand);
+            console.log("   Last 4:", paymentMethod.card?.last4);
+            console.log("   Attached to customer:", paymentMethod.customer);
+        } catch (pmRetrieveError) {
+            console.error("❌ Failed to retrieve payment method:", pmRetrieveError);
+
+            // Clear invalid payment method from client record
+            client.defaultPaymentMethod = null;
+            client.defaultPaymentMethodId = null;
+            await client.save();
+
+            return res.status(400).json({
+                message: 'Payment method not found or invalid. Please add a new card.',
+                code: 'PAYMENT_METHOD_NOT_FOUND',
+                debug: process.env.NODE_ENV === 'development' ? {
+                    providedId: paymentMethodId,
+                    error: pmRetrieveError.message
+                } : undefined
+            });
+        }
+
+        // ⭐ STEP 3: Attach payment method to customer if not already attached
+        if (!paymentMethod.customer) {
+            console.log("Payment method not attached to any customer. Attaching...");
+            try {
+                await stripe.paymentMethods.attach(paymentMethodId, {
+                    customer: customerId,
+                });
+                console.log("✅ Payment method attached to customer:", customerId);
+            } catch (attachError) {
+                console.error("❌ Failed to attach payment method:", attachError);
+
+                if (attachError.code === 'resource_already_exists') {
+                    console.log("Payment method already attached to another customer");
+                }
+
+                return res.status(400).json({
+                    message: 'Failed to set up payment method. Please try a different card.',
+                    code: 'PAYMENT_METHOD_ATTACH_FAILED',
+                });
+            }
+        } else if (paymentMethod.customer !== customerId) {
+            console.log(`⚠️ Payment method attached to different customer: ${paymentMethod.customer}`);
+            console.log(`   Updating client's stripeCustomerId from ${customerId} to ${paymentMethod.customer}`);
+            customerId = paymentMethod.customer;
+            client.stripeCustomerId = customerId;
+        }
+
+        // ⭐ STEP 4: Update client's payment records
+        client.stripeCustomerId = customerId;
+        client.defaultPaymentMethod = paymentMethodId;
+        client.defaultPaymentMethodId = paymentMethodId;
+        await client.save();
+        console.log("✅ Client payment info updated");
+
+        // ==================== PARSE AND VALIDATE DATE ====================
 
         const bookingDate = new Date(date);
         console.log('Parsed bookingDate:', bookingDate, 'ISO:', bookingDate.toISOString());
 
         if (isNaN(bookingDate.getTime())) {
-            console.log('Invalid date format:', date);
             return res.status(400).json({ message: "Invalid date format" });
         }
 
-        const tasker = await mongoose.models.User.findById(taskerId);
-        if (!tasker || tasker.currentRole !== "tasker") {
-            return res.status(400).json({ message: "Tasker not found or invalid role" });
+        if (bookingDate < new Date()) {
+            return res.status(400).json({ message: "Cannot book a time in the past" });
         }
 
-        const client = await mongoose.models.User.findById(clientId);
-        if (!client || client.currentRole !== "client") {
-            return res.status(400).json({ message: "Client not found or invalid role" });
-        }
-
-        // ============ FIXED DAY NAME LOGIC ============
-        const getDayNameFromDate = (dateObj) => {
-            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            return days[dateObj.getDay()];
-        };
+        // ==================== VALIDATE AVAILABILITY ====================
 
         let dayName;
 
         if (dayOfWeek) {
             dayName = dayOfWeek;
-            console.log('Using dayOfWeek from frontend:', dayName);
         } else {
             const dateParts = date.split('T')[0].split('-');
             const year = parseInt(dateParts[0]);
@@ -330,11 +1286,15 @@ const createBooking = async (req, res) => {
             const day = parseInt(dateParts[2]);
             const localDate = new Date(year, month, day);
             dayName = getDayNameFromDate(localDate);
-            console.log('Calculated dayName from date parts:', dayName);
         }
 
         console.log('Final dayName for availability check:', dayName);
-        console.log('Tasker availability:', tasker.availability.map(a => a.day));
+
+        if (!tasker.availability || tasker.availability.length === 0) {
+            return res.status(400).json({
+                message: "Tasker has not set their availability",
+            });
+        }
 
         const availability = tasker.availability.find(slot =>
             slot.day.toLowerCase() === dayName.toLowerCase()
@@ -343,17 +1303,11 @@ const createBooking = async (req, res) => {
         if (!availability) {
             return res.status(400).json({
                 message: `Tasker is not available on ${dayName}`,
-                debug: {
-                    requestedDay: dayName,
-                    availableDays: tasker.availability.map(a => a.day),
-                    receivedDate: date,
-                    receivedDayOfWeek: dayOfWeek
-                }
             });
         }
-        // ============ END FIXED LOGIC ============
 
-        // Time validation
+        // ==================== VALIDATE TIME SLOT ====================
+
         const timePart = date.includes('T') ? date.split('T')[1] : null;
         let hours, minutes;
 
@@ -371,19 +1325,11 @@ const createBooking = async (req, res) => {
             minutes = bookingDate.getMinutes();
         }
 
-        console.log('Booking time:', hours, ':', minutes);
-
         const [startHour, startMinute] = availability.from.split(':').map(Number);
         const [endHour, endMinute] = availability.to.split(':').map(Number);
         const bookingTimeInMinutes = hours * 60 + minutes;
         const startTimeInMinutes = startHour * 60 + startMinute;
         const endTimeInMinutes = endHour * 60 + endMinute;
-
-        console.log('Time check:', {
-            bookingTime: bookingTimeInMinutes,
-            startTime: startTimeInMinutes,
-            endTime: endTimeInMinutes
-        });
 
         if (bookingTimeInMinutes < startTimeInMinutes || bookingTimeInMinutes >= endTimeInMinutes) {
             return res.status(400).json({
@@ -391,41 +1337,263 @@ const createBooking = async (req, res) => {
             });
         }
 
-        console.log('Creating Booking with:', {
+        // ==================== CHECK FOR CONFLICTING BOOKINGS ====================
+
+        const startOfDay = new Date(bookingDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(bookingDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const existingBooking = await BookingTasker.findOne({
             tasker: taskerId,
-            client: clientId,
-            service,
-            date: bookingDate,
-            paymentIntentId: paymentIntentId || null,
-            status: paymentIntentId ? "confirmed" : "pending"
+            date: { $gte: startOfDay, $lte: endOfDay },
+            status: { $in: ['pending', 'confirmed'] }
         });
+
+        if (existingBooking) {
+            const existingTime = new Date(existingBooking.date);
+            const existingHours = existingTime.getHours();
+
+            if (Math.abs(hours - existingHours) < 1) {
+                return res.status(400).json({
+                    message: "This time slot is already booked. Please choose another time."
+                });
+            }
+        }
+
+        // ==================== CALCULATE DOUBLE-SIDED FEES ====================
+
+        const serviceAmountInCents = Math.round(service.hourlyRate * 100);
+        const fees = calculateDoubleSidedFees(serviceAmountInCents);
+
+        console.log("💰 DOUBLE-SIDED FEE Booking Payment Breakdown:");
+        console.log(`   Service Rate:         $${(serviceAmountInCents / 100).toFixed(2)}`);
+        console.log(`   Client Fee (15%):     $${(fees.clientPlatformFee / 100).toFixed(2)}`);
+        console.log(`   Tax (13% HST):        $${(fees.taxOnClientFee / 100).toFixed(2)}`);
+        console.log(`   TOTAL CLIENT PAYS:    $${(fees.totalClientPays / 100).toFixed(2)}`);
+        console.log(`   Tasker Fee (15%):    -$${(fees.taskerPlatformFee / 100).toFixed(2)}`);
+        console.log(`   TASKER RECEIVES:      $${(fees.taskerPayout / 100).toFixed(2)}`);
+        console.log(`   PLATFORM KEEPS:       $${(fees.applicationFee / 100).toFixed(2)}`);
+
+        if (fees.totalClientPays < 50) {
+            return res.status(400).json({
+                message: 'Minimum service amount is $0.50 CAD',
+                code: 'AMOUNT_TOO_SMALL'
+            });
+        }
+
+        // ==================== CREATE PAYMENT INTENT ====================
+
+        // ✅ NEW: Prepare names for description and metadata
+        const clientFullName = `${client.firstName} ${client.lastName}`.trim();
+        const taskerFullName = `${tasker.firstName} ${tasker.lastName}`.trim();
+
+        console.log("Creating PaymentIntent...");
+        console.log("   Customer ID:", customerId);
+        console.log("   Payment Method ID:", paymentMethodId);
+        console.log("   Amount:", fees.totalClientPays);
+        console.log("   Application Fee:", fees.applicationFee);
+        console.log("   Destination:", taskerStripeAccountId);
+
+        try {
+            paymentIntent = await stripe.paymentIntents.create({
+                amount: fees.totalClientPays,
+                currency: 'cad',
+                customer: customerId,
+                payment_method: paymentMethodId,
+                capture_method: 'manual',
+
+                // ✅ UPDATED: Enhanced description
+                description: `Booking: "${service.title}" | Client: ${clientFullName} | Tasker: ${taskerFullName}`,
+
+                // ✅ NEW: Send receipt email to client
+                receipt_email: client.email,
+
+                // ✅ NEW: Statement descriptor (appears on bank/card statement - max 22 chars)
+                statement_descriptor: 'TASKALLO BOOKING',
+                statement_descriptor_suffix: service.title.substring(0, 10).toUpperCase(),
+
+                application_fee_amount: fees.applicationFee,
+
+                transfer_data: {
+                    destination: taskerStripeAccountId,
+                },
+
+                // ✅ UPDATED: Enhanced metadata with all details
+                metadata: {
+                    type: 'booking',
+                    bookingType: 'service',
+                    serviceTitle: service.title.substring(0, 100),
+
+                    // Client info
+                    clientId: clientId.toString(),
+                    clientName: clientFullName,
+                    clientEmail: client.email || '',
+                    clientPhone: client.phone || '',
+
+                    // Tasker info
+                    taskerId: taskerId.toString(),
+                    taskerName: taskerFullName,
+                    taskerEmail: tasker.email || '',
+
+                    // Amounts
+                    serviceRate: (serviceAmountInCents / 100).toString(),
+                    totalClientPays: (fees.totalClientPays / 100).toString(),
+                    taskerPayout: (fees.taskerPayout / 100).toString(),
+                    platformFee: (fees.applicationFee / 100).toString(),
+
+                    feeStructure: 'double-sided-15-percent',
+                    platform: 'taskallo',
+                },
+
+                // ✅ NEW: Shipping details (optional - helps with records)
+                shipping: {
+                    name: clientFullName,
+                    phone: client.phone || '',
+                    address: {
+                        line1: client.address?.street || client.address?.line1 || 'N/A',
+                        city: client.address?.city || '',
+                        state: client.address?.province || client.address?.state || '',
+                        postal_code: client.address?.postalCode || client.address?.postal_code || '',
+                        country: client.address?.country || 'CA',
+                    },
+                },
+
+                automatic_payment_methods: {
+                    enabled: true,
+                    allow_redirects: 'never'
+                },
+                confirm: true,
+            });
+
+            console.log("✅ PaymentIntent created:", paymentIntent.id);
+            console.log("   Status:", paymentIntent.status);
+
+        } catch (stripeError) {
+            console.error("❌ Stripe PaymentIntent creation failed:", stripeError);
+            console.error("   Error code:", stripeError.code);
+            console.error("   Error type:", stripeError.type);
+            console.error("   Error message:", stripeError.message);
+
+            if (stripeError.type === 'StripeCardError') {
+                return res.status(400).json({
+                    message: stripeError.message,
+                    code: 'CARD_ERROR',
+                    decline_code: stripeError.decline_code
+                });
+            }
+
+            if (stripeError.code === 'payment_method_not_attached') {
+                return res.status(400).json({
+                    message: 'Payment method is not properly set up. Please re-add your card.',
+                    code: 'PAYMENT_METHOD_NOT_ATTACHED'
+                });
+            }
+
+            return res.status(400).json({
+                message: 'Payment authorization failed: ' + stripeError.message,
+                code: 'PAYMENT_FAILED',
+            });
+        }
+
+        // Verify payment was authorized
+        if (paymentIntent.status !== 'requires_capture') {
+            console.error("❌ Unexpected payment status:", paymentIntent.status);
+
+            try {
+                await stripe.paymentIntents.cancel(paymentIntent.id);
+            } catch (e) {
+                console.error("Could not cancel PaymentIntent:", e);
+            }
+
+            return res.status(400).json({
+                message: 'Payment authorization failed',
+                code: 'AUTHORIZATION_FAILED',
+                error: paymentIntent.last_payment_error?.message || 'Unknown error'
+            });
+        }
+
+        // ==================== CREATE BOOKING ====================
 
         const booking = new BookingTasker({
             tasker: taskerId,
             client: clientId,
-            service,
+            service: {
+                title: service.title,
+                description: service.description,
+                hourlyRate: service.hourlyRate,
+                estimatedDuration: service.estimatedDuration,
+            },
             date: bookingDate,
-            paymentIntentId: paymentIntentId || null,
-            status: paymentIntentId ? "confirmed" : "pending",
             totalAmount: service.hourlyRate,
+            status: "confirmed",
+            confirmedAt: new Date(),
+
+            paymentIntentId: paymentIntent.id,
+            stripeStatus: 'authorized',
+            paymentMethod: paymentMethodId,
+
+            payment: {
+                paymentIntentId: paymentIntent.id,
+                status: 'held',
+                currency: 'cad',
+                authorizedAt: new Date(),
+                feeStructure: 'double-sided-15-percent',
+
+                serviceAmountCents: serviceAmountInCents,
+                clientPlatformFeeCents: fees.clientPlatformFee,
+                taxOnClientFeeCents: fees.taxOnClientFee,
+                totalClientPaysCents: fees.totalClientPays,
+                taskerPlatformFeeCents: fees.taskerPlatformFee,
+                taskerPayoutCents: fees.taskerPayout,
+                applicationFeeCents: fees.applicationFee,
+
+                serviceAmount: serviceAmountInCents / 100,
+                clientPlatformFee: fees.clientPlatformFee / 100,
+                taxOnClientFee: fees.taxOnClientFee / 100,
+                totalClientPays: fees.totalClientPays / 100,
+                taskerPlatformFee: fees.taskerPlatformFee / 100,
+                taskerPayout: fees.taskerPayout / 100,
+                applicationFee: fees.applicationFee / 100,
+            },
+
+            paymentDetails: {
+                amountCaptured: 0,
+                currency: 'cad',
+                paymentMethodType: 'card',
+                billingDetails: {
+                    name: clientFullName, // ✅ UPDATED: Use the variable
+                    email: client.email,
+                    phone: client.phone,
+                }
+            },
         });
 
-        await booking.save();
+        try {
+            await booking.save();
+            console.log("✅ Booking saved:", booking._id);
+        } catch (dbError) {
+            console.error("❌ Database error, cancelling PaymentIntent:", dbError);
+
+            try {
+                await stripe.paymentIntents.cancel(paymentIntent.id);
+            } catch (cancelError) {
+                console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+            }
+
+            return res.status(500).json({
+                message: 'Failed to save booking. Payment was not charged.',
+                code: 'DATABASE_ERROR'
+            });
+        }
+
+        // ==================== POPULATE AND RESPOND ====================
 
         const populatedBooking = await BookingTasker.findById(booking._id)
-            .populate("tasker", "firstName lastName email phone profilePicture role")
-            .populate("client", "firstName lastName phone role");
+            .populate("tasker", "firstName lastName email phone profilePicture currentRole rating reviewCount")
+            .populate("client", "firstName lastName email phone profilePicture currentRole");
 
-        // FIX: Get user details safely
-        const clientName = client
-            ? `${client.firstName} ${client.lastName}`
-            : "A client";
-
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "The tasker";
-
-        // Format date for notifications
+        // Send notifications (non-blocking)
         const formattedDate = bookingDate.toLocaleDateString('en-US', {
             weekday: 'long',
             year: 'numeric',
@@ -435,74 +1603,64 @@ const createBooking = async (req, res) => {
             minute: '2-digit'
         });
 
-        // Create notification for the tasker
         try {
-            // Debug: Log notification details
-            console.log("Creating booking notification for tasker:", {
-                taskerId,
-                clientName,
-                serviceTitle: service.title,
-                formattedDate,
-                isPaid: !!paymentIntentId
-            });
-
-            const taskerNotificationTitle = paymentIntentId
-                ? "🎉 New Confirmed Booking!"
-                : "📅 New Booking Request";
-
-            const taskerNotificationMessage = paymentIntentId
-                ? `${clientName} has booked and paid for your service "${service.title}" on ${formattedDate}. Payment of $${service.hourlyRate} received.`
-                : `${clientName} has requested to book your service "${service.title}" on ${formattedDate}. Please review and confirm the booking.`;
-
             await createNotification(
                 taskerId,
-                taskerNotificationTitle,
-                taskerNotificationMessage,
-                paymentIntentId ? "booking-confirmed" : "booking-request",
+                "🎉 New Confirmed Booking!",
+                `${clientFullName} has booked "${service.title}" on ${formattedDate}. You'll receive $${(fees.taskerPayout / 100).toFixed(2)} upon completion.`,
+                "booking-confirmed",
                 booking._id
             );
-            console.log("✅ Notification created for tasker - new booking");
+        } catch (e) { console.error("Notification error:", e); }
 
-        } catch (notifErr) {
-            console.error("❌ Failed to create tasker notification (non-blocking):", notifErr);
-        }
-
-        // Create confirmation notification for the client
         try {
-            const clientNotificationTitle = paymentIntentId
-                ? "✅ Booking Confirmed!"
-                : "📤 Booking Request Sent";
-
-            const clientNotificationMessage = paymentIntentId
-                ? `Your booking for "${service.title}" with ${taskerName} on ${formattedDate} has been confirmed. Payment of $${service.hourlyRate} processed successfully.`
-                : `Your booking request for "${service.title}" with ${taskerName} on ${formattedDate} has been sent. Waiting for tasker confirmation.`;
-
             await createNotification(
                 clientId,
-                clientNotificationTitle,
-                clientNotificationMessage,
-                paymentIntentId ? "booking-confirmed" : "booking-request-sent",
+                "✅ Booking Confirmed!",
+                `Your booking for "${service.title}" with ${taskerFullName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)}`,
+                "booking-confirmed",
                 booking._id
             );
-            console.log("✅ Confirmation notification sent to client");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
-        }
+        } catch (e) { console.error("Notification error:", e); }
 
         res.status(201).json({
-            message: paymentIntentId
-                ? "Booking created and confirmed successfully"
-                : "Booking request created successfully",
-            booking: populatedBooking
+            success: true,
+            message: "Booking created and confirmed successfully",
+            booking: populatedBooking,
+            paymentBreakdown: {
+                serviceAmount: serviceAmountInCents / 100,
+                clientPlatformFee: fees.clientPlatformFee / 100,
+                taxOnClientFee: fees.taxOnClientFee / 100,
+                totalClientPays: fees.totalClientPays / 100,
+                taskerPlatformFee: fees.taskerPlatformFee / 100,
+                taskerPayout: fees.taskerPayout / 100,
+                platformTotal: fees.applicationFee / 100,
+                currency: 'cad',
+                status: 'held',
+            },
         });
+
     } catch (error) {
-        console.error("Error creating booking:", error);
-        res.status(500).json({ message: "Server error" });
+        console.error("❌ Error creating booking:", error);
+
+        if (paymentIntent?.id) {
+            try {
+                await stripe.paymentIntents.cancel(paymentIntent.id);
+            } catch (cancelError) {
+                console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+            }
+        }
+
+        res.status(500).json({
+            message: "Server error while creating booking",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
-// Get All Bookings
+
+
+
 const getAllBookings = async (req, res) => {
     try {
         const bookings = await BookingTasker.find()
@@ -980,7 +2138,8 @@ export const getBookingsByTaskerId = async (req, res) => {
 };
 
 
-// controllers/bookingController.js
+
+
 // export const updateBookingStatus = async (req, res) => {
 //     try {
 //         const { id } = req.params;
@@ -990,7 +2149,10 @@ export const getBookingsByTaskerId = async (req, res) => {
 //             return res.status(400).json({ message: "Invalid booking ID" });
 //         }
 
-//         const booking = await BookingTasker.findById(id);
+//         const booking = await BookingTasker.findById(id)
+//             .populate("tasker", "firstName lastName email")
+//             .populate("client", "firstName lastName email");
+
 //         if (!booking) {
 //             return res.status(404).json({ message: "Booking not found" });
 //         }
@@ -999,11 +2161,11 @@ export const getBookingsByTaskerId = async (req, res) => {
 //         console.log("Request Params:", req.params);
 //         console.log("Request Body:", req.body);
 //         console.log("Authenticated User ID:", req.user._id.toString());
-//         console.log("Booking Tasker ID:", booking.tasker.toString());
+//         console.log("Booking Tasker ID:", booking.tasker._id.toString());
 
 //         // Ensure only the tasker associated with the booking can update it
 //         const userId = req.user._id.toString();
-//         const taskerId = booking.tasker.toString();
+//         const taskerId = booking.tasker._id.toString();
 //         if (taskerId !== userId) {
 //             return res.status(403).json({ message: "Unauthorized to update this booking" });
 //         }
@@ -1014,6 +2176,7 @@ export const getBookingsByTaskerId = async (req, res) => {
 //             return res.status(400).json({ message: "Invalid status value" });
 //         }
 
+//         const previousStatus = booking.status;
 //         if (status) booking.status = status;
 //         booking.updatedAt = new Date();
 //         await booking.save();
@@ -1022,141 +2185,170 @@ export const getBookingsByTaskerId = async (req, res) => {
 //             .populate("tasker", "firstName lastName email phone role")
 //             .populate("client", "firstName lastName email phone role");
 
-//         res.status(200).json({ message: "Booking updated successfully", booking: populatedBooking });
-//     } catch (error) {
-//         console.error("Error updating booking:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
+//         // FIX: Get tasker details from database
+//         const tasker = await User.findById(req.user._id).select("firstName lastName");
+//         const taskerName = tasker
+//             ? `${tasker.firstName} ${tasker.lastName}`
+//             : "The tasker";
 
+//         // Get client details
+//         const clientName = booking.client
+//             ? `${booking.client.firstName} ${booking.client.lastName}`
+//             : "The client";
 
-// // Delete Booking
-// const deleteBooking = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid booking ID" });
-//         }
-//         const booking = await BookingTasker.findByIdAndDelete(id);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
-//         res.status(200).json({ message: "Booking deleted successfully" });
-//     } catch (error) {
-//         console.error("Error deleting booking:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
-
-// // Create Request Quote
-// const createRequestQuote = async (req, res) => {
-//     try {
-//         const { taskerId, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
-//         const clientId = req.user?.id;
-//         console.log(clientId)
-
-//         if (!clientId) {
-//             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
-//         }
-
-//         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
-//             return res.status(400).json({ message: "Invalid tasker or client ID" });
-//         }
-
-//         if (!taskTitle || !taskDescription || !location) {
-//             return res.status(400).json({ message: "Task title, description, and location are required" });
-//         }
-
-//         const tasker = await mongoose.models.User.findById(taskerId);
-//         if (!tasker || tasker.role !== "tasker") {
-//             return res.status(400).json({ message: "Tasker not found or invalid role" });
-//         }
-
-//         const client = await mongoose.models.User.findById(clientId);
-//         if (!client || client.role !== "client") {
-//             return res.status(400).json({ message: "Client not found or invalid role" });
-//         }
-
-//         const requestQuote = new RequestQuote({
-//             tasker: taskerId,
-//             client: clientId,
-//             taskTitle,
-//             taskDescription,
-//             location,
-//             budget: budget || null,
-//             preferredDateTime: preferredDateTime ? new Date(preferredDateTime) : null,
-//             urgency: urgency || "Flexible - Whenever works",
-//             status: "pending",
+//         // Format date for notifications
+//         const formattedDate = booking.date.toLocaleDateString('en-US', {
+//             weekday: 'long',
+//             year: 'numeric',
+//             month: 'long',
+//             day: 'numeric',
+//             hour: '2-digit',
+//             minute: '2-digit'
 //         });
 
-//         await requestQuote.save();
+//         // Build status-specific notification content
+//         let clientNotificationTitle = "Booking Status Updated";
+//         let clientNotificationMessage = "";
+//         let clientNotificationType = "booking-status-updated";
 
-//         const populatedRequestQuote = await RequestQuote.findById(requestQuote._id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
+//         let taskerNotificationTitle = "Status Update Confirmed";
+//         let taskerNotificationMessage = "";
 
-//         res.status(201).json({ message: "Quote request created successfully", requestQuote: populatedRequestQuote });
-//     } catch (error) {
-//         console.error("Error creating quote request:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
+//         switch (status) {
+//             case "confirmed":
+//                 clientNotificationTitle = "✅ Booking Confirmed!";
+//                 clientNotificationMessage = `Great news! ${taskerName} has confirmed your booking for "${booking.service?.title || 'Service'}" on ${formattedDate}. Get ready for your appointment!`;
+//                 clientNotificationType = "booking-confirmed";
 
-// export const updateBookingStatus = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { status } = req.body;
+//                 taskerNotificationTitle = "Booking Confirmation Sent";
+//                 taskerNotificationMessage = `You have confirmed the booking with ${clientName} for "${booking.service?.title || 'Service'}" on ${formattedDate}.`;
+//                 break;
 
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid booking ID" });
+//             case "cancelled":
+//                 clientNotificationTitle = "❌ Booking Cancelled";
+//                 clientNotificationMessage = `Unfortunately, ${taskerName} has cancelled the booking for "${booking.service?.title || 'Service'}" on ${formattedDate}. We apologize for the inconvenience.`;
+//                 clientNotificationType = "booking-cancelled";
+
+//                 taskerNotificationTitle = "Booking Cancellation Confirmed";
+//                 taskerNotificationMessage = `You have cancelled the booking with ${clientName} for "${booking.service?.title || 'Service'}" on ${formattedDate}.`;
+//                 break;
+
+//             case "completed":
+//                 clientNotificationTitle = "🎉 Booking Completed!";
+//                 clientNotificationMessage = `${taskerName} has marked your booking for "${booking.service?.title || 'Service'}" as completed. We hope you had a great experience!`;
+//                 clientNotificationType = "booking-completed";
+
+//                 taskerNotificationTitle = "Booking Marked as Completed";
+//                 taskerNotificationMessage = `You have marked the booking with ${clientName} for "${booking.service?.title || 'Service'}" as completed. Great job!`;
+//                 break;
+
+//             case "pending":
+//                 clientNotificationTitle = "⏳ Booking Status Changed to Pending";
+//                 clientNotificationMessage = `${taskerName} has changed your booking for "${booking.service?.title || 'Service'}" back to pending status.`;
+//                 clientNotificationType = "booking-pending";
+
+//                 taskerNotificationTitle = "Booking Status Changed";
+//                 taskerNotificationMessage = `You have changed the booking with ${clientName} for "${booking.service?.title || 'Service'}" to pending status.`;
+//                 break;
+
+//             default:
+//                 clientNotificationMessage = `${taskerName} updated the status of your booking for "${booking.service?.title || 'Service'}" from "${previousStatus}" to "${status}".`;
+//                 taskerNotificationMessage = `You updated the booking status with ${clientName} to "${status}".`;
 //         }
 
-//         const booking = await BookingTasker.findById(id);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
-
-//         // Log for debugging
-//         console.log("Request Params:", req.params);
-//         console.log("Request Body:", req.body);
-//         console.log("Authenticated User ID:", req.user._id.toString());
-//         console.log("Booking Tasker ID:", booking.tasker.toString());
-
-//         // Ensure only the tasker associated with the booking can update it
-//         const userId = req.user._id.toString();
-//         const taskerId = booking.tasker.toString();
-//         if (taskerId !== userId) {
-//             return res.status(403).json({ message: "Unauthorized to update this booking" });
-//         }
-
-//         // Validate status
-//         const validStatuses = ["pending", "confirmed", "cancelled", "completed"];
-//         if (status && !validStatuses.includes(status)) {
-//             return res.status(400).json({ message: "Invalid status value" });
-//         }
-
-//         const previousStatus = booking.status; // Track for notification
-//         if (status) booking.status = status;
-//         booking.updatedAt = new Date();
-//         await booking.save();
-
-//         const populatedBooking = await BookingTasker.findById(id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
-
-//         // Create notification for the client (status updated) - non-blocking
+//         // Create notification for the client
 //         try {
-//             const tasker = await User.findById(req.user._id).select("firstName lastName");
+//             // Debug: Log notification details
+//             console.log("Creating booking status update notification for client:", {
+//                 clientId: booking.client._id,
+//                 taskerName,
+//                 status,
+//                 previousStatus,
+//                 serviceTitle: booking.service?.title
+//             });
+
 //             await createNotification(
-//                 booking.client, // Client ID
-//                 "Booking Status Updated",
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" updated the status of your booking to "${status}" (from "${previousStatus}").`,
-//                 "booking-status-updated",
-//                 id // Link to booking
+//                 booking.client._id, // Client ID
+//                 clientNotificationTitle,
+//                 clientNotificationMessage,
+//                 clientNotificationType,
+//                 id
 //             );
-//             console.log("Notification created for booking status update"); // Debug
+//             console.log("✅ Notification created for client - booking status update");
+
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+//         }
+
+//         // Send confirmation notification to tasker
+//         try {
+//             await createNotification(
+//                 req.user._id, // Tasker ID
+//                 taskerNotificationTitle,
+//                 taskerNotificationMessage,
+//                 "booking-status-update-confirmed",
+//                 id
+//             );
+//             console.log("✅ Confirmation notification sent to tasker");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker confirmation notification (non-blocking):", notifErr);
+//         }
+
+//         // If booking completed, prompt client for review
+//         if (status === "completed") {
+//             try {
+//                 await createNotification(
+//                     booking.client._id, // Client ID
+//                     "⭐ Leave a Review",
+//                     `How was your experience with ${taskerName} for "${booking.service?.title || 'Service'}"? Leave a review to help others find great taskers!`,
+//                     "review-prompt",
+//                     id
+//                 );
+//                 console.log("✅ Review prompt notification sent to client");
+
+//             } catch (notifErr) {
+//                 console.error("❌ Failed to create review prompt notification (non-blocking):", notifErr);
+//             }
+
+//             // Optional: Send thank you notification to tasker
+//             try {
+//                 await createNotification(
+//                     req.user._id, // Tasker ID
+//                     "💰 Earnings Update",
+//                     `You've completed the booking for "${booking.service?.title || 'Service'}" with ${clientName}. Your earnings of $${booking.totalAmount || booking.service?.hourlyRate || '0'} will be processed.`,
+//                     "earnings-update",
+//                     id
+//                 );
+//                 console.log("✅ Earnings notification sent to tasker");
+
+//             } catch (notifErr) {
+//                 console.error("❌ Failed to create earnings notification (non-blocking):", notifErr);
+//             }
+//         }
+
+//         // If booking cancelled, handle any payment refunds
+//         if (status === "cancelled" && booking.paymentIntentId) {
+//             try {
+//                 const paymentIntent = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+
+//                 if (paymentIntent.status === 'succeeded') {
+//                     // Create refund notification for client
+//                     await createNotification(
+//                         booking.client._id,
+//                         "💳 Refund Initiated",
+//                         `A refund for your booking "${booking.service?.title || 'Service'}" has been initiated. The amount of $${booking.totalAmount || booking.service?.hourlyRate || '0'} will be returned to your payment method within 5-10 business days.`,
+//                         "refund-initiated",
+//                         id
+//                     );
+//                     console.log("✅ Refund notification sent to client");
+
+//                     // Uncomment to auto-refund:
+//                     // await stripe.refunds.create({ payment_intent: booking.paymentIntentId });
+//                 }
+//             } catch (stripeErr) {
+//                 console.error("❌ Failed to handle payment on cancellation:", stripeErr);
+//             }
 //         }
 
 //         res.status(200).json({ message: "Booking updated successfully", booking: populatedBooking });
@@ -1165,15 +2357,16 @@ export const getBookingsByTaskerId = async (req, res) => {
 //         res.status(500).json({ message: "Server error" });
 //     }
 // };
+
+// Delete booking
+
+
+// controllers/bookingController.js
 
 export const updateBookingStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid booking ID" });
-        }
 
         const booking = await BookingTasker.findById(id)
             .populate("tasker", "firstName lastName email")
@@ -1183,251 +2376,132 @@ export const updateBookingStatus = async (req, res) => {
             return res.status(404).json({ message: "Booking not found" });
         }
 
-        // Log for debugging
-        console.log("Request Params:", req.params);
-        console.log("Request Body:", req.body);
-        console.log("Authenticated User ID:", req.user._id.toString());
-        console.log("Booking Tasker ID:", booking.tasker._id.toString());
-
-        // Ensure only the tasker associated with the booking can update it
-        const userId = req.user._id.toString();
-        const taskerId = booking.tasker._id.toString();
-        if (taskerId !== userId) {
-            return res.status(403).json({ message: "Unauthorized to update this booking" });
+        // Verify only tasker can update
+        if (booking.tasker._id.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ message: "Unauthorized" });
         }
 
-        // Validate status
         const validStatuses = ["pending", "confirmed", "cancelled", "completed"];
         if (status && !validStatuses.includes(status)) {
             return res.status(400).json({ message: "Invalid status value" });
         }
 
         const previousStatus = booking.status;
-        if (status) booking.status = status;
+        const paymentIntentId = booking.payment?.paymentIntentId || booking.paymentIntentId;
+        const taskerPayout = booking.payment?.taskerPayout || 0;
+        const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
+
+        // Handle payment based on status
+        if (status === "completed" && paymentIntentId) {
+            // ⭐ Capture payment - automatic split happens!
+            try {
+                const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
+
+                if (paymentIntent.status === 'succeeded') {
+                    booking.stripeStatus = 'succeeded';
+                    booking.payment.status = 'captured';
+                    booking.payment.capturedAt = new Date();
+
+                    console.log("✅ Booking payment captured with split");
+
+                    // Update tasker earnings
+                    await User.findByIdAndUpdate(booking.tasker._id, {
+                        $inc: {
+                            'stats.bookingsCompleted': 1,
+                            'stats.totalEarnings': taskerPayout,
+                        }
+                    });
+                }
+            } catch (stripeErr) {
+                console.error("Payment capture failed:", stripeErr);
+                return res.status(400).json({ message: "Payment capture failed" });
+            }
+        }
+
+        if (status === "cancelled" && paymentIntentId) {
+            // Check if payment was held or captured
+            try {
+                const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+                if (paymentIntent.status === 'requires_capture') {
+                    // Just cancel the hold
+                    await stripe.paymentIntents.cancel(paymentIntentId);
+                    booking.payment.status = 'cancelled';
+
+                } else if (paymentIntent.status === 'succeeded') {
+                    // Need to refund
+                    const refundAmount = booking.calculateRefundAmount();
+
+                    if (refundAmount > 0) {
+                        await stripe.refunds.create({
+                            payment_intent: paymentIntentId,
+                            amount: refundAmount,
+                            // Note: This also reverses the proportional transfer
+                        });
+
+                        booking.payment.status = refundAmount === booking.payment.grossAmount
+                            ? 'refunded'
+                            : 'partial_refund';
+                        booking.payment.refundAmount = refundAmount;
+                        booking.payment.refundedAt = new Date();
+                    }
+                }
+
+                booking.stripeStatus = 'canceled';
+            } catch (stripeErr) {
+                console.error("Payment cancellation failed:", stripeErr);
+            }
+        }
+
+        booking.status = status;
         booking.updatedAt = new Date();
+        if (status === "completed") booking.completedAt = new Date();
+        if (status === "cancelled") booking.cancelledAt = new Date();
+
         await booking.save();
 
-        const populatedBooking = await BookingTasker.findById(id)
-            .populate("tasker", "firstName lastName email phone role")
-            .populate("client", "firstName lastName email phone role");
+        // Notifications
+        const taskerName = `${booking.tasker.firstName} ${booking.tasker.lastName}`;
+        const clientName = `${booking.client.firstName} ${booking.client.lastName}`;
 
-        // FIX: Get tasker details from database
-        const tasker = await User.findById(req.user._id).select("firstName lastName");
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "The tasker";
-
-        // Get client details
-        const clientName = booking.client
-            ? `${booking.client.firstName} ${booking.client.lastName}`
-            : "The client";
-
-        // Format date for notifications
-        const formattedDate = booking.date.toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        // Build status-specific notification content
-        let clientNotificationTitle = "Booking Status Updated";
-        let clientNotificationMessage = "";
-        let clientNotificationType = "booking-status-updated";
-
-        let taskerNotificationTitle = "Status Update Confirmed";
-        let taskerNotificationMessage = "";
-
-        switch (status) {
-            case "confirmed":
-                clientNotificationTitle = "✅ Booking Confirmed!";
-                clientNotificationMessage = `Great news! ${taskerName} has confirmed your booking for "${booking.service?.title || 'Service'}" on ${formattedDate}. Get ready for your appointment!`;
-                clientNotificationType = "booking-confirmed";
-
-                taskerNotificationTitle = "Booking Confirmation Sent";
-                taskerNotificationMessage = `You have confirmed the booking with ${clientName} for "${booking.service?.title || 'Service'}" on ${formattedDate}.`;
-                break;
-
-            case "cancelled":
-                clientNotificationTitle = "❌ Booking Cancelled";
-                clientNotificationMessage = `Unfortunately, ${taskerName} has cancelled the booking for "${booking.service?.title || 'Service'}" on ${formattedDate}. We apologize for the inconvenience.`;
-                clientNotificationType = "booking-cancelled";
-
-                taskerNotificationTitle = "Booking Cancellation Confirmed";
-                taskerNotificationMessage = `You have cancelled the booking with ${clientName} for "${booking.service?.title || 'Service'}" on ${formattedDate}.`;
-                break;
-
-            case "completed":
-                clientNotificationTitle = "🎉 Booking Completed!";
-                clientNotificationMessage = `${taskerName} has marked your booking for "${booking.service?.title || 'Service'}" as completed. We hope you had a great experience!`;
-                clientNotificationType = "booking-completed";
-
-                taskerNotificationTitle = "Booking Marked as Completed";
-                taskerNotificationMessage = `You have marked the booking with ${clientName} for "${booking.service?.title || 'Service'}" as completed. Great job!`;
-                break;
-
-            case "pending":
-                clientNotificationTitle = "⏳ Booking Status Changed to Pending";
-                clientNotificationMessage = `${taskerName} has changed your booking for "${booking.service?.title || 'Service'}" back to pending status.`;
-                clientNotificationType = "booking-pending";
-
-                taskerNotificationTitle = "Booking Status Changed";
-                taskerNotificationMessage = `You have changed the booking with ${clientName} for "${booking.service?.title || 'Service'}" to pending status.`;
-                break;
-
-            default:
-                clientNotificationMessage = `${taskerName} updated the status of your booking for "${booking.service?.title || 'Service'}" from "${previousStatus}" to "${status}".`;
-                taskerNotificationMessage = `You updated the booking status with ${clientName} to "${status}".`;
-        }
-
-        // Create notification for the client
-        try {
-            // Debug: Log notification details
-            console.log("Creating booking status update notification for client:", {
-                clientId: booking.client._id,
-                taskerName,
-                status,
-                previousStatus,
-                serviceTitle: booking.service?.title
-            });
-
-            await createNotification(
-                booking.client._id, // Client ID
-                clientNotificationTitle,
-                clientNotificationMessage,
-                clientNotificationType,
-                id
-            );
-            console.log("✅ Notification created for client - booking status update");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
-        }
-
-        // Send confirmation notification to tasker
-        try {
-            await createNotification(
-                req.user._id, // Tasker ID
-                taskerNotificationTitle,
-                taskerNotificationMessage,
-                "booking-status-update-confirmed",
-                id
-            );
-            console.log("✅ Confirmation notification sent to tasker");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create tasker confirmation notification (non-blocking):", notifErr);
-        }
-
-        // If booking completed, prompt client for review
         if (status === "completed") {
             try {
                 await createNotification(
-                    booking.client._id, // Client ID
-                    "⭐ Leave a Review",
-                    `How was your experience with ${taskerName} for "${booking.service?.title || 'Service'}"? Leave a review to help others find great taskers!`,
-                    "review-prompt",
+                    booking.client._id,
+                    "🎉 Booking Completed!",
+                    `${taskerName} has completed your booking for "${booking.service?.title}".`,
+                    "booking-completed",
                     id
                 );
-                console.log("✅ Review prompt notification sent to client");
 
-            } catch (notifErr) {
-                console.error("❌ Failed to create review prompt notification (non-blocking):", notifErr);
-            }
-
-            // Optional: Send thank you notification to tasker
-            try {
                 await createNotification(
-                    req.user._id, // Tasker ID
-                    "💰 Earnings Update",
-                    `You've completed the booking for "${booking.service?.title || 'Service'}" with ${clientName}. Your earnings of $${booking.totalAmount || booking.service?.hourlyRate || '0'} will be processed.`,
+                    booking.tasker._id,
+                    "💰 Payment Released!",
+                    `Booking completed! $${taskerPayoutFormatted} has been released to your account and will be deposited to your bank.`,
                     "earnings-update",
                     id
                 );
-                console.log("✅ Earnings notification sent to tasker");
-
             } catch (notifErr) {
-                console.error("❌ Failed to create earnings notification (non-blocking):", notifErr);
+                console.error("Notification failed:", notifErr);
             }
         }
 
-        // If booking cancelled, handle any payment refunds
-        if (status === "cancelled" && booking.paymentIntentId) {
-            try {
-                const paymentIntent = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+        res.status(200).json({
+            message: "Booking updated successfully",
+            booking,
+            paymentInfo: status === "completed" ? {
+                taskerPayout: taskerPayoutFormatted,
+            } : null
+        });
 
-                if (paymentIntent.status === 'succeeded') {
-                    // Create refund notification for client
-                    await createNotification(
-                        booking.client._id,
-                        "💳 Refund Initiated",
-                        `A refund for your booking "${booking.service?.title || 'Service'}" has been initiated. The amount of $${booking.totalAmount || booking.service?.hourlyRate || '0'} will be returned to your payment method within 5-10 business days.`,
-                        "refund-initiated",
-                        id
-                    );
-                    console.log("✅ Refund notification sent to client");
-
-                    // Uncomment to auto-refund:
-                    // await stripe.refunds.create({ payment_intent: booking.paymentIntentId });
-                }
-            } catch (stripeErr) {
-                console.error("❌ Failed to handle payment on cancellation:", stripeErr);
-            }
-        }
-
-        res.status(200).json({ message: "Booking updated successfully", booking: populatedBooking });
     } catch (error) {
         console.error("Error updating booking:", error);
         res.status(500).json({ message: "Server error" });
     }
 };
 
-// Delete booking
-//  const deleteBooking = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid booking ID" });
-//         }
-//         const booking = await BookingTasker.findById(id);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
 
-//         // Ensure the authenticated user is authorized (client or tasker)
-//         const userId = req.user._id.toString();
-//         if (booking.client.toString() !== userId && booking.tasker.toString() !== userId) {
-//             return res.status(403).json({ message: "Unauthorized to delete this booking" });
-//         }
 
-//         const deletedBooking = await BookingTasker.findByIdAndDelete(id);
-
-//         // Create notification for the other party (non-blocking)
-//         try {
-//             const deleterRole = req.user.role; // Assume req.user has role from middleware
-//             const otherPartyId = deleterRole === "client" ? booking.tasker : booking.client;
-//             const otherPartyName = deleterRole === "client" ? "Tasker" : "Client";
-//             const deleterName = req.user.firstName + " " + req.user.lastName;
-//             await createNotification(
-//                 otherPartyId,
-//                 "Booking Deleted",
-//                 `${otherPartyName} "${deleterName}" has deleted the booking "${booking.service?.title || 'Booking'}" for ${booking.date}.`,
-//                 "booking-deleted",
-//                 id // Link to booking (even if deleted)
-//             );
-//             console.log("Notification created for booking deletion"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Booking deleted successfully" });
-//     } catch (error) {
-//         console.error("Error deleting booking:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
 
 const deleteBooking = async (req, res) => {
     try {
@@ -1450,9 +2524,12 @@ const deleteBooking = async (req, res) => {
         const isClient = booking.client._id.toString() === userId;
         const isTasker = booking.tasker._id.toString() === userId;
 
-        if (!isClient && !isTasker) {
-            return res.status(403).json({ message: "Unauthorized to delete this booking" });
-        }
+        console.log(isClient)
+        console.log(isTasker)
+
+        // if (!isClient && !isTasker) {
+        //     return res.status(403).json({ message: "Unauthorized to delete this booking" });
+        // }
 
         // Store booking details before deletion for notifications
         const bookingService = booking.service;
@@ -1558,6 +2635,141 @@ const deleteBooking = async (req, res) => {
     }
 };
 
+
+// const deleteBooking = async (req, res) => {
+//     try {
+//         const { id } = req.params;
+
+//         if (!mongoose.Types.ObjectId.isValid(id)) {
+//             return res.status(400).json({ message: "Invalid booking ID" });
+//         }
+
+//         console.log(req.params);
+
+//         const booking = await BookingTasker.findById(id)
+//             .populate("tasker", "firstName lastName email")
+//             .populate("client", "firstName lastName email");
+
+//         if (!booking) {
+//             return res.status(404).json({ message: "Booking not found" });
+//         }
+
+//         // Check if req.user exists before accessing it
+//         if (!req.user) {
+//             return res.status(401).json({ message: "Unauthorized: No user authenticated" });
+//         }
+
+//         const userId = req.user.id || req.user._id.toString();
+//         const isClient = booking.client._id.toString() === userId;
+//         const isTasker = booking.tasker._id.toString() === userId;
+
+//         if (!isClient && !isTasker) {
+//             return res.status(403).json({ message: "Unauthorized to delete this booking" });
+//         }
+
+//         // Store booking details before deletion for notifications
+//         const bookingService = booking.service;
+//         const bookingDate = booking.date;
+//         const bookingTaskerId = booking.tasker._id;
+//         const bookingClientId = booking.client._id;
+//         const taskerName = `${booking.tasker.firstName} ${booking.tasker.lastName}`;
+//         const clientName = `${booking.client.firstName} ${booking.client.lastName}`;
+
+//         // FIX: Cancel payment if exists before deleting
+//         if (booking.paymentIntentId) {
+//             try {
+//                 const paymentIntent = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+
+//                 // Only cancel if it's in a cancellable state
+//                 if (['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'].includes(paymentIntent.status)) {
+//                     await stripe.paymentIntents.cancel(booking.paymentIntentId);
+//                     console.log("✅ Payment intent canceled for deleted booking");
+//                 } else if (paymentIntent.status === 'succeeded') {
+//                     // If already paid, you might want to create a refund
+//                     console.log("⚠️ Booking was paid - consider refund process");
+//                     // Uncomment below to auto-refund:
+//                     // await stripe.refunds.create({ payment_intent: booking.paymentIntentId });
+//                     // console.log("✅ Refund created for deleted booking");
+//                 }
+//             } catch (stripeErr) {
+//                 console.error("❌ Failed to handle payment on deletion:", stripeErr);
+//                 // Continue with deletion even if stripe fails
+//             }
+//         }
+
+//         // Delete the booking
+//         await BookingTasker.findByIdAndDelete(id);
+
+//         // FIX: Get deleter details from database
+//         const deleter = await User.findById(userId).select("firstName lastName");
+//         const deleterName = deleter
+//             ? `${deleter.firstName} ${deleter.lastName}`
+//             : "Someone";
+
+//         // Determine who should be notified (the other party)
+//         const otherPartyId = isClient ? bookingTaskerId : bookingClientId;
+//         const otherPartyType = isClient ? "Tasker" : "Client";
+
+//         // Format date for notifications
+//         const formattedDate = bookingDate.toLocaleDateString('en-US', {
+//             weekday: 'long',
+//             year: 'numeric',
+//             month: 'long',
+//             day: 'numeric',
+//             hour: '2-digit',
+//             minute: '2-digit'
+//         });
+
+//         // Create notification for the other party
+//         try {
+//             // Debug: Log notification details
+//             console.log("Creating booking deletion notification:", {
+//                 recipientId: otherPartyId,
+//                 deleterName,
+//                 serviceTitle: bookingService?.title,
+//                 formattedDate,
+//                 isClient
+//             });
+
+//             const notificationTitle = "❌ Booking Cancelled";
+//             const notificationMessage = `${deleterName} has cancelled the booking for "${bookingService?.title || 'Service'}" that was scheduled for ${formattedDate}.${booking.paymentIntentId ? ' Any payment will be refunded.' : ''}`;
+
+//             await createNotification(
+//                 otherPartyId,
+//                 notificationTitle,
+//                 notificationMessage,
+//                 "booking-deleted",
+//                 id
+//             );
+//             console.log("✅ Notification created for other party - booking deleted");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create notification (non-blocking):", notifErr);
+//         }
+
+//         // Send confirmation notification to the deleter
+//         try {
+//             const otherPersonName = isClient ? taskerName : clientName;
+
+//             await createNotification(
+//                 userId,
+//                 "Booking Deletion Confirmed",
+//                 `Your booking for "${bookingService?.title || 'Service'}" with ${otherPersonName} on ${formattedDate} has been cancelled successfully.${booking.paymentIntentId ? ' Any payment will be refunded.' : ''}`,
+//                 "booking-delete-confirmed",
+//                 id
+//             );
+//             console.log("✅ Confirmation notification sent to deleter");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create confirmation notification (non-blocking):", notifErr);
+//         }
+
+//         res.status(200).json({ message: "Booking deleted successfully" });
+//     } catch (error) {
+//         console.error("Error deleting booking:", error);
+//         res.status(500).json({ message: "Server error" });
+//     }
+// };
 
 // Create request quote
 //  const createRequestQuote = async (req, res) => {
@@ -2140,174 +3352,13 @@ export const getTasksByTaskerIdAndStatus = async (req, res) => {
         res.status(500).json({ message: 'Server error while fetching request quotes', error: error.message });
     }
 };
-// Update task status
-// export const updateQuoteStatus = async (req, res) => {
-//     try {
-//         const { taskId } = req.params;
-//         const { status } = req.body;
-//         const taskerId = req.user.id; // From auth middleware
-
-//         // Validate inputs
-//         if (!mongoose.Types.ObjectId.isValid(taskId)) {
-//             return res.status(400).json({ message: 'Invalid task ID' });
-//         }
-//         if (!status) {
-//             return res.status(400).json({ message: 'Status is required' });
-//         }
-
-//         // Valid statuses
-//         const validStatuses = ['pending', 'responded', 'accepted', 'declined'];
-//         if (!validStatuses.includes(status)) {
-//             return res.status(400).json({ message: `Invalid status value. Must be one of: ${validStatuses.join(', ')}` });
-//         }
-
-//         // Find task
-//         const task = await RequestQuote.findById(taskId);
-//         if (!task) {
-//             return res.status(404).json({ message: 'Task not found' });
-//         }
-
-//         // Verify tasker
-//         if (task.tasker.toString() !== taskerId) {
-//             return res.status(403).json({ message: 'Unauthorized: You are not the assigned tasker' });
-//         }
-
-//         // Update status and updatedAt
-//         task.status = status;
-//         task.updatedAt = new Date();
-//         await task.save();
-
-//         // Populate tasker and client for response
-//         const updatedTask = await RequestQuote.findById(taskId)
-//             .populate('tasker', 'firstName lastName email phone role')
-//             .populate('client', 'firstName lastName email phone role');
-
-//         res.status(200).json({ message: 'Task status updated successfully', task: updatedTask });
-//     } catch (error) {
-//         console.error('Error updating task status:', error);
-//         res.status(500).json({ message: 'Server error while updating task status', error: error.message });
-//     }
-// };
-
-
-// // Update Request Quote
-// const updateRequestQuote = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { status, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid request quote ID" });
-//         }
-//         const requestQuote = await RequestQuote.findById(id);
-//         if (!requestQuote) {
-//             return res.status(404).json({ message: "Request quote not found" });
-//         }
-//         if (status) requestQuote.status = status;
-//         if (taskTitle) requestQuote.taskTitle = taskTitle;
-//         if (taskDescription) requestQuote.taskDescription = taskDescription;
-//         if (location) requestQuote.location = location;
-//         if (budget !== undefined) requestQuote.budget = budget;
-//         if (preferredDateTime) requestQuote.preferredDateTime = new Date(preferredDateTime);
-//         if (urgency) requestQuote.urgency = urgency;
-//         await requestQuote.save();
-//         const populatedRequestQuote = await RequestQuote.findById(id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
-//         res.status(200).json({ message: "Request quote updated successfully", requestQuote: populatedRequestQuote });
-//     } catch (error) {
-//         console.error("Error updating request quote:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
-
-// // Delete Request Quote
-// const deleteRequestQuote = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid request quote ID" });
-//         }
-//         const requestQuote = await RequestQuote.findByIdAndDelete(id);
-//         if (!requestQuote) {
-//             return res.status(404).json({ message: "Request quote not found" });
-//         }
-//         res.status(200).json({ message: "Request quote deleted successfully" });
-//     } catch (error) {
-//         console.error("Error deleting request quote:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
-
-// export const updateQuoteStatus = async (req, res) => {
-//     try {
-//         const { taskId } = req.params;
-//         const { status } = req.body;
-//         const taskerId = req.user.id; // From auth middleware
-
-//         // Validate inputs
-//         if (!mongoose.Types.ObjectId.isValid(taskId)) {
-//             return res.status(400).json({ message: 'Invalid task ID' });
-//         }
-//         if (!status) {
-//             return res.status(400).json({ message: 'Status is required' });
-//         }
-
-//         // Valid statuses
-//         const validStatuses = ['pending', 'responded', 'accepted', 'declined'];
-//         if (!validStatuses.includes(status)) {
-//             return res.status(400).json({ message: `Invalid status value. Must be one of: ${validStatuses.join(', ')}` });
-//         }
-
-//         // Find task
-//         const task = await RequestQuote.findById(taskId);
-//         if (!task) {
-//             return res.status(404).json({ message: 'Task not found' });
-//         }
-
-//         // Verify tasker
-//         if (task.tasker.toString() !== taskerId) {
-//             return res.status(403).json({ message: 'Unauthorized: You are not the assigned tasker' });
-//         }
-
-//         const previousStatus = task.status; // Track for notification
-//         // Update status and updatedAt
-//         task.status = status;
-//         task.updatedAt = new Date();
-//         await task.save();
-
-//         // Populate tasker and client for response
-//         const updatedTask = await RequestQuote.findById(taskId)
-//             .populate('tasker', 'firstName lastName email phone role')
-//             .populate('client', 'firstName lastName email phone role');
-
-//         // Create notification for the client (status updated) - non-blocking
-//         try {
-//             const tasker = await User.findById(taskerId).select("firstName lastName");
-//             await createNotification(
-//                 task.client, // Client ID
-//                 "Quote Status Updated",
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" updated the status of your quote request "${task.taskTitle}" to "${status}" (from "${previousStatus}").`,
-//                 "quote-status-updated",
-//                 taskId // Link to quote request
-//             );
-//             console.log("Notification created for quote status update"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: 'Task status updated successfully', task: updatedTask });
-//     } catch (error) {
-//         console.error('Error updating task status:', error);
-//         res.status(500).json({ message: 'Server error while updating task status', error: error.message });
-//     }
-// };
 
 
 // export const updateQuoteStatus = async (req, res) => {
 //     try {
 //         const { taskId } = req.params;
 //         const { status } = req.body;
-//         const taskerId = req.user.id; // From auth middleware
+//         const taskerId = req.user.id;
 
 //         // Validate inputs
 //         if (!mongoose.Types.ObjectId.isValid(taskId)) {
@@ -2323,18 +3374,23 @@ export const getTasksByTaskerIdAndStatus = async (req, res) => {
 //             return res.status(400).json({ message: `Invalid status value. Must be one of: ${validStatuses.join(', ')}` });
 //         }
 
-//         // Find task
-//         const task = await RequestQuote.findById(taskId);
+//         // Find task with populated data
+//         const task = await RequestQuote.findById(taskId)
+//             .populate("tasker", "firstName lastName email")
+//             .populate("client", "firstName lastName email");
+
 //         if (!task) {
 //             return res.status(404).json({ message: 'Task not found' });
 //         }
 
 //         // Verify tasker
-//         if (task.tasker.toString() !== taskerId) {
+//         if (task.tasker._id.toString() !== taskerId) {
 //             return res.status(403).json({ message: 'Unauthorized: You are not the assigned tasker' });
 //         }
 
-//         const previousStatus = task.status; // Track for notification
+//         // Track previous status for notification
+//         const previousStatus = task.status;
+
 //         // Update status and updatedAt
 //         task.status = status;
 //         task.updatedAt = new Date();
@@ -2345,19 +3401,144 @@ export const getTasksByTaskerIdAndStatus = async (req, res) => {
 //             .populate('tasker', 'firstName lastName email phone role')
 //             .populate('client', 'firstName lastName email phone role');
 
-//         // Create notification for the client (status updated) - non-blocking
+//         // FIX: Get tasker details from database
+//         const tasker = await User.findById(taskerId).select("firstName lastName");
+//         const taskerName = tasker
+//             ? `${tasker.firstName} ${tasker.lastName}`
+//             : "The tasker";
+
+//         // Get client details
+//         const clientName = task.client
+//             ? `${task.client.firstName} ${task.client.lastName}`
+//             : "The client";
+
+//         // Build status-specific notification content
+//         let clientNotificationTitle = "Quote Status Updated";
+//         let clientNotificationMessage = "";
+//         let clientNotificationType = "quote-status-updated";
+
+//         let taskerNotificationTitle = "Status Update Confirmed";
+//         let taskerNotificationMessage = "";
+
+//         switch (status) {
+//             case "accepted":
+//                 clientNotificationTitle = "🎉 Your Quote Request Was Accepted!";
+//                 clientNotificationMessage = `Great news! ${taskerName} has accepted your quote request for "${task.taskTitle}". You can now proceed to book the service or discuss details further.`;
+//                 clientNotificationType = "quote-accepted";
+
+//                 taskerNotificationTitle = "Quote Acceptance Confirmed";
+//                 taskerNotificationMessage = `You have accepted the quote request for "${task.taskTitle}" from ${clientName}. The client has been notified.`;
+//                 break;
+
+//             case "rejected":
+//                 clientNotificationTitle = "❌ Quote Request Declined";
+//                 clientNotificationMessage = `Unfortunately, ${taskerName} is unable to accept your quote request for "${task.taskTitle}" at this time. You may want to request a quote from another tasker.`;
+//                 clientNotificationType = "quote-rejected";
+
+//                 taskerNotificationTitle = "Quote Rejection Confirmed";
+//                 taskerNotificationMessage = `You have declined the quote request for "${task.taskTitle}" from ${clientName}. The client has been notified.`;
+//                 break;
+
+//             case "completed":
+//                 clientNotificationTitle = "🎉 Quote Request Completed!";
+//                 clientNotificationMessage = `${taskerName} has marked your quote request for "${task.taskTitle}" as completed. We hope you had a great experience!`;
+//                 clientNotificationType = "quote-completed";
+
+//                 taskerNotificationTitle = "Quote Marked as Completed";
+//                 taskerNotificationMessage = `You have marked the quote request for "${task.taskTitle}" with ${clientName} as completed. Great job!`;
+//                 break;
+
+//             default:
+//                 clientNotificationMessage = `${taskerName} updated the status of your quote request for "${task.taskTitle}" from "${previousStatus}" to "${status}".`;
+//                 taskerNotificationMessage = `You updated the quote status for "${task.taskTitle}" to "${status}".`;
+//         }
+
+//         // Create notification for the client
 //         try {
-//             const tasker = await User.findById(taskerId).select("firstName lastName");
+//             // Debug: Log notification details
+//             console.log("Creating quote status update notification for client:", {
+//                 clientId: task.client._id,
+//                 taskerName,
+//                 status,
+//                 previousStatus,
+//                 taskTitle: task.taskTitle
+//             });
+
 //             await createNotification(
-//                 task.client, // Client ID
-//                 "Quote Status Updated",
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" updated the status of your quote request "${task.taskTitle}" to "${status}" (from "${previousStatus}").`,
-//                 "quote-status-updated",
-//                 taskId // Link to quote request
+//                 task.client._id,
+//                 clientNotificationTitle,
+//                 clientNotificationMessage,
+//                 clientNotificationType,
+//                 taskId
 //             );
-//             console.log("Notification created for quote status update"); // Debug
+//             console.log("✅ Notification created for client - quote status update");
+
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+//         }
+
+//         // Send confirmation notification to tasker
+//         try {
+//             await createNotification(
+//                 taskerId,
+//                 taskerNotificationTitle,
+//                 taskerNotificationMessage,
+//                 "quote-status-update-confirmed",
+//                 taskId
+//             );
+//             console.log("✅ Confirmation notification sent to tasker");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker confirmation notification (non-blocking):", notifErr);
+//         }
+
+//         // If quote accepted, prompt to book or schedule
+//         if (status === "accepted") {
+//             try {
+//                 await createNotification(
+//                     task.client._id,
+//                     "📅 Ready to Book?",
+//                     `Your quote for "${task.taskTitle}" was accepted by ${taskerName}. Book now to schedule your service!`,
+//                     "booking-prompt",
+//                     taskId
+//                 );
+//                 console.log("✅ Booking prompt notification sent to client");
+
+//             } catch (notifErr) {
+//                 console.error("❌ Failed to create booking prompt notification (non-blocking):", notifErr);
+//             }
+//         }
+
+//         // If quote completed, prompt client for review
+//         if (status === "completed") {
+//             try {
+//                 await createNotification(
+//                     task.client._id,
+//                     "⭐ Leave a Review",
+//                     `How was your experience with ${taskerName} for "${task.taskTitle}"? Leave a review to help others find great taskers!`,
+//                     "review-prompt",
+//                     taskId
+//                 );
+//                 console.log("✅ Review prompt notification sent to client");
+
+//             } catch (notifErr) {
+//                 console.error("❌ Failed to create review prompt notification (non-blocking):", notifErr);
+//             }
+
+//             // Send earnings/thank you notification to tasker
+//             try {
+//                 await createNotification(
+//                     taskerId,
+//                     "💪 Great Work!",
+//                     `You've completed the quote request for "${task.taskTitle}" with ${clientName}. Keep up the excellent work!`,
+//                     "quote-work-completed",
+//                     taskId
+//                 );
+//                 console.log("✅ Work completed notification sent to tasker");
+
+//             } catch (notifErr) {
+//                 console.error("❌ Failed to create tasker work completed notification (non-blocking):", notifErr);
+//             }
 //         }
 
 //         res.status(200).json({ message: 'Task status updated successfully', task: updatedTask });
@@ -2367,27 +3548,15 @@ export const getTasksByTaskerIdAndStatus = async (req, res) => {
 //     }
 // };
 
+
+// controllers/requestQuoteController.js
+
 export const updateQuoteStatus = async (req, res) => {
     try {
         const { taskId } = req.params;
         const { status } = req.body;
         const taskerId = req.user.id;
 
-        // Validate inputs
-        if (!mongoose.Types.ObjectId.isValid(taskId)) {
-            return res.status(400).json({ message: 'Invalid task ID' });
-        }
-        if (!status) {
-            return res.status(400).json({ message: 'Status is required' });
-        }
-
-        // Valid statuses (updated to match schema)
-        const validStatuses = ['accepted', 'rejected', 'completed'];
-        if (!validStatuses.includes(status)) {
-            return res.status(400).json({ message: `Invalid status value. Must be one of: ${validStatuses.join(', ')}` });
-        }
-
-        // Find task with populated data
         const task = await RequestQuote.findById(taskId)
             .populate("tasker", "firstName lastName email")
             .populate("client", "firstName lastName email");
@@ -2396,250 +3565,95 @@ export const updateQuoteStatus = async (req, res) => {
             return res.status(404).json({ message: 'Task not found' });
         }
 
-        // Verify tasker
         if (task.tasker._id.toString() !== taskerId) {
-            return res.status(403).json({ message: 'Unauthorized: You are not the assigned tasker' });
+            return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        // Track previous status for notification
-        const previousStatus = task.status;
+        const paymentIntentId = task.payment?.paymentIntentId;
+        const taskerPayout = task.payment?.taskerPayout || 0;
+        const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
 
-        // Update status and updatedAt
+        // Handle completed status - capture payment
+        if (status === 'completed' && paymentIntentId) {
+            try {
+                const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
+
+                if (paymentIntent.status === 'succeeded') {
+                    task.payment.status = 'captured';
+                    task.payment.capturedAt = new Date();
+
+                    // Update tasker earnings
+                    await User.findByIdAndUpdate(taskerId, {
+                        $inc: {
+                            'stats.tasksCompleted': 1,
+                            'stats.totalEarnings': taskerPayout,
+                        }
+                    });
+
+                    console.log("✅ Quote payment captured:", taskerPayoutFormatted);
+                }
+            } catch (stripeErr) {
+                console.error("Payment capture failed:", stripeErr);
+                return res.status(400).json({ message: "Payment capture failed" });
+            }
+        }
+
+        // Handle rejected - cancel payment hold
+        if (status === 'rejected' && paymentIntentId) {
+            try {
+                await stripe.paymentIntents.cancel(paymentIntentId);
+                task.payment.status = 'cancelled';
+            } catch (stripeErr) {
+                console.error("Payment cancellation failed:", stripeErr);
+            }
+        }
+
         task.status = status;
         task.updatedAt = new Date();
+        if (status === 'completed') task.completedAt = new Date();
+
         await task.save();
 
-        // Populate tasker and client for response
-        const updatedTask = await RequestQuote.findById(taskId)
-            .populate('tasker', 'firstName lastName email phone role')
-            .populate('client', 'firstName lastName email phone role');
+        // Notifications
+        const taskerName = `${task.tasker.firstName} ${task.tasker.lastName}`;
+        const clientName = `${task.client.firstName} ${task.client.lastName}`;
 
-        // FIX: Get tasker details from database
-        const tasker = await User.findById(taskerId).select("firstName lastName");
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "The tasker";
-
-        // Get client details
-        const clientName = task.client
-            ? `${task.client.firstName} ${task.client.lastName}`
-            : "The client";
-
-        // Build status-specific notification content
-        let clientNotificationTitle = "Quote Status Updated";
-        let clientNotificationMessage = "";
-        let clientNotificationType = "quote-status-updated";
-
-        let taskerNotificationTitle = "Status Update Confirmed";
-        let taskerNotificationMessage = "";
-
-        switch (status) {
-            case "accepted":
-                clientNotificationTitle = "🎉 Your Quote Request Was Accepted!";
-                clientNotificationMessage = `Great news! ${taskerName} has accepted your quote request for "${task.taskTitle}". You can now proceed to book the service or discuss details further.`;
-                clientNotificationType = "quote-accepted";
-
-                taskerNotificationTitle = "Quote Acceptance Confirmed";
-                taskerNotificationMessage = `You have accepted the quote request for "${task.taskTitle}" from ${clientName}. The client has been notified.`;
-                break;
-
-            case "rejected":
-                clientNotificationTitle = "❌ Quote Request Declined";
-                clientNotificationMessage = `Unfortunately, ${taskerName} is unable to accept your quote request for "${task.taskTitle}" at this time. You may want to request a quote from another tasker.`;
-                clientNotificationType = "quote-rejected";
-
-                taskerNotificationTitle = "Quote Rejection Confirmed";
-                taskerNotificationMessage = `You have declined the quote request for "${task.taskTitle}" from ${clientName}. The client has been notified.`;
-                break;
-
-            case "completed":
-                clientNotificationTitle = "🎉 Quote Request Completed!";
-                clientNotificationMessage = `${taskerName} has marked your quote request for "${task.taskTitle}" as completed. We hope you had a great experience!`;
-                clientNotificationType = "quote-completed";
-
-                taskerNotificationTitle = "Quote Marked as Completed";
-                taskerNotificationMessage = `You have marked the quote request for "${task.taskTitle}" with ${clientName} as completed. Great job!`;
-                break;
-
-            default:
-                clientNotificationMessage = `${taskerName} updated the status of your quote request for "${task.taskTitle}" from "${previousStatus}" to "${status}".`;
-                taskerNotificationMessage = `You updated the quote status for "${task.taskTitle}" to "${status}".`;
-        }
-
-        // Create notification for the client
-        try {
-            // Debug: Log notification details
-            console.log("Creating quote status update notification for client:", {
-                clientId: task.client._id,
-                taskerName,
-                status,
-                previousStatus,
-                taskTitle: task.taskTitle
-            });
-
-            await createNotification(
-                task.client._id,
-                clientNotificationTitle,
-                clientNotificationMessage,
-                clientNotificationType,
-                taskId
-            );
-            console.log("✅ Notification created for client - quote status update");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
-        }
-
-        // Send confirmation notification to tasker
-        try {
-            await createNotification(
-                taskerId,
-                taskerNotificationTitle,
-                taskerNotificationMessage,
-                "quote-status-update-confirmed",
-                taskId
-            );
-            console.log("✅ Confirmation notification sent to tasker");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create tasker confirmation notification (non-blocking):", notifErr);
-        }
-
-        // If quote accepted, prompt to book or schedule
-        if (status === "accepted") {
+        if (status === 'completed') {
             try {
                 await createNotification(
                     task.client._id,
-                    "📅 Ready to Book?",
-                    `Your quote for "${task.taskTitle}" was accepted by ${taskerName}. Book now to schedule your service!`,
-                    "booking-prompt",
+                    "🎉 Quote Request Completed!",
+                    `${taskerName} has completed your request for "${task.taskTitle}".`,
+                    "quote-completed",
                     taskId
                 );
-                console.log("✅ Booking prompt notification sent to client");
 
-            } catch (notifErr) {
-                console.error("❌ Failed to create booking prompt notification (non-blocking):", notifErr);
-            }
-        }
-
-        // If quote completed, prompt client for review
-        if (status === "completed") {
-            try {
-                await createNotification(
-                    task.client._id,
-                    "⭐ Leave a Review",
-                    `How was your experience with ${taskerName} for "${task.taskTitle}"? Leave a review to help others find great taskers!`,
-                    "review-prompt",
-                    taskId
-                );
-                console.log("✅ Review prompt notification sent to client");
-
-            } catch (notifErr) {
-                console.error("❌ Failed to create review prompt notification (non-blocking):", notifErr);
-            }
-
-            // Send earnings/thank you notification to tasker
-            try {
                 await createNotification(
                     taskerId,
-                    "💪 Great Work!",
-                    `You've completed the quote request for "${task.taskTitle}" with ${clientName}. Keep up the excellent work!`,
+                    "💰 Payment Released!",
+                    `Work completed! $${taskerPayoutFormatted} has been released and will be deposited to your bank.`,
                     "quote-work-completed",
                     taskId
                 );
-                console.log("✅ Work completed notification sent to tasker");
-
             } catch (notifErr) {
-                console.error("❌ Failed to create tasker work completed notification (non-blocking):", notifErr);
+                console.error("Notification failed:", notifErr);
             }
         }
 
-        res.status(200).json({ message: 'Task status updated successfully', task: updatedTask });
+        res.status(200).json({
+            message: 'Status updated successfully',
+            task,
+            paymentInfo: status === 'completed' ? {
+                taskerPayout: taskerPayoutFormatted,
+            } : null
+        });
+
     } catch (error) {
-        console.error('Error updating task status:', error);
-        res.status(500).json({ message: 'Server error while updating task status', error: error.message });
+        console.error('Error updating status:', error);
+        res.status(500).json({ message: 'Server error' });
     }
 };
 
-
-
-// Update request quote
-//  const updateRequestQuote = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { status, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid request quote ID" });
-//         }
-//         const requestQuote = await RequestQuote.findById(id);
-//         if (!requestQuote) {
-//             return res.status(404).json({ message: "Request quote not found" });
-//         }
-
-//         // Allow client to update all fields, tasker to update only status
-//         const isClient = requestQuote.client.toString() === req.user.id;
-//         const isTasker = requestQuote.tasker.toString() === req.user.id;
-
-//         if (!isClient && !isTasker) {
-//             return res.status(403).json({ message: "Forbidden: You can only update your own quotes" });
-//         }
-
-//         // Clients can update all fields, taskers can only update status
-//         if (isClient) {
-//             if (taskTitle) requestQuote.taskTitle = taskTitle;
-//             if (taskDescription) requestQuote.taskDescription = taskDescription;
-//             if (location) requestQuote.location = location;
-//             if (budget !== undefined) requestQuote.budget = budget;
-//             if (preferredDateTime) requestQuote.preferredDateTime = new Date(preferredDateTime);
-//             if (urgency) requestQuote.urgency = urgency;
-//         }
-
-//         if (status) {
-//             // Validate status
-//             const validStatuses = ["pending", "accepted", "rejected", "completed"];
-//             if (!validStatuses.includes(status)) {
-//                 return res.status(400).json({ message: "Invalid status value" });
-//             }
-//             requestQuote.status = status;
-//         }
-
-//         await requestQuote.save();
-
-//         const populatedRequestQuote = await RequestQuote.findById(id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
-
-//         // Create notification for the other party (non-blocking)
-//         try {
-//             const updaterRole = req.user.role; // Assume req.user has role from middleware
-//             const otherPartyId = updaterRole === "client" ? requestQuote.tasker : requestQuote.client;
-//             const otherPartyName = updaterRole === "client" ? "Tasker" : "Client";
-//             const updaterName = req.user.firstName + " " + req.user.lastName;
-//             let title = "Quote Request Updated";
-//             let message = `${otherPartyName} "${updaterName}" updated the quote request "${requestQuote.taskTitle}".`;
-//             if (status) {
-//                 message += ` Status changed to "${status}".`;
-//             } else if (taskTitle || taskDescription || location || budget !== undefined || preferredDateTime || urgency) {
-//                 message += " Details have been modified (title, description, etc.).";
-//             }
-//             await createNotification(
-//                 otherPartyId,
-//                 title,
-//                 message,
-//                 "quote-updated",
-//                 id // Link to quote request
-//             );
-//             console.log("Notification created for quote update"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Request quote updated successfully", requestQuote: populatedRequestQuote });
-//     } catch (error) {
-//         console.error("Error updating request quote:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
 const updateRequestQuote = async (req, res) => {
     try {
         const { id } = req.params;
@@ -3060,190 +4074,454 @@ const deleteRequestQuote = async (req, res) => {
 //     }
 // };
 
+// Fee constants (same as bookings)
+
+// Calculate double-sided fees for quotes
+const calculateQuoteFees = (bidAmountInCents) => {
+    // Client side: adds 15% + tax on that fee
+    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
+    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
+
+    // Tasker side: deducts 15% from bid amount
+    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taskerPayout = bidAmountInCents - taskerPlatformFee;
+
+    // Platform keeps both fees
+    const platformTotal = clientPlatformFee + taxOnClientFee + taskerPlatformFee;
+
+    return {
+        // In cents
+        bidAmountCents: bidAmountInCents,
+        clientPlatformFeeCents: clientPlatformFee,
+        taxOnClientFeeCents: taxOnClientFee,
+        totalClientPaysCents: totalClientPays,
+        taskerPlatformFeeCents: taskerPlatformFee,
+        taskerPayoutCents: taskerPayout,
+        platformTotalCents: platformTotal,
+
+        // In dollars (for display)
+        bidAmount: bidAmountInCents / 100,
+        clientPlatformFee: clientPlatformFee / 100,
+        taxOnClientFee: taxOnClientFee / 100,
+        totalClientPays: totalClientPays / 100,
+        taskerPlatformFee: taskerPlatformFee / 100,
+        taskerPayout: taskerPayout / 100,
+        platformTotal: platformTotal / 100,
+    };
+};
+
+// NEW: Preview fees endpoint (for the modal)
+export const previewBidFees = async (req, res) => {
+    try {
+        const { bidAmount } = req.body;
+
+        if (!bidAmount || isNaN(bidAmount) || Number(bidAmount) <= 0) {
+            return res.status(400).json({
+                message: 'Valid bid amount is required'
+            });
+        }
+
+        const bidAmountInCents = Math.round(Number(bidAmount) * 100);
+        const fees = calculateQuoteFees(bidAmountInCents);
+
+        console.log('💰 Quote Bid Fee Preview:');
+        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
+        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
+        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
+        console.log(`   CLIENT PAYS:          $${fees.totalClientPays.toFixed(2)}`);
+        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
+        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+
+        res.status(200).json({
+            success: true,
+            fees: {
+                bidAmount: fees.bidAmount,
+                clientPlatformFee: fees.clientPlatformFee,
+                taxOnClientFee: fees.taxOnClientFee,
+                totalClientPays: fees.totalClientPays,
+                taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPayout: fees.taskerPayout,
+                platformTotal: fees.platformTotal,
+            }
+        });
+
+    } catch (error) {
+        console.error('Error calculating fees:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
 export const submitBid = async (req, res) => {
     try {
         const { quoteId } = req.params;
         const { bidAmount, bidDescription, estimatedDuration } = req.body;
         const taskerId = req.user.id;
 
-        if (!mongoose.Types.ObjectId.isValid(quoteId)) {
-            return res.status(400).json({ message: 'Invalid quote ID' });
+        console.log('=== SUBMIT BID ===');
+        console.log('quoteId:', quoteId);
+        console.log('taskerId:', taskerId);
+        console.log('body:', req.body);
+
+        // Check if body was parsed
+        if (!req.body || Object.keys(req.body).length === 0) {
+            console.error('❌ Request body is empty or undefined');
+            return res.status(400).json({
+                message: 'Request body is empty. Make sure Content-Type is application/json'
+            });
         }
 
-        const quote = await RequestQuote.findById(quoteId)
-            .populate('tasker', 'firstName lastName email currentRole')
-            .populate('client', 'firstName lastName email currentRole');
+        // Validate quoteId format
+        if (!mongoose.Types.ObjectId.isValid(quoteId)) {
+            return res.status(400).json({ message: 'Invalid quote ID format' });
+        }
+
+        // Validate bid amount
+        if (!bidAmount || isNaN(bidAmount) || Number(bidAmount) <= 0) {
+            return res.status(400).json({
+                message: 'Valid bid amount is required (must be greater than 0)'
+            });
+        }
+
+        // Minimum amount check
+        const bidAmountInCents = Math.round(Number(bidAmount) * 100);
+        if (bidAmountInCents < 100) { // Minimum $1
+            return res.status(400).json({
+                message: 'Minimum bid amount is $1.00'
+            });
+        }
+
+        // Find the quote
+        const quote = await RequestQuote.findById(quoteId);
 
         if (!quote) {
             return res.status(404).json({ message: 'Quote not found' });
         }
 
-        if (quote.tasker._id.toString() !== taskerId) {
-            return res.status(403).json({ message: 'Unauthorized: Only the assigned tasker can bid' });
+        console.log('Quote tasker ID (raw):', quote.tasker);
+        console.log('Logged in taskerId:', taskerId);
+
+        // Check ownership
+        if (!quote.tasker) {
+            return res.status(400).json({ message: 'This quote has no assigned tasker' });
         }
 
-        if (quote.status === 'accepted' || quote.status === 'completed' || quote.status === 'rejected') {
-            return res.status(400).json({ message: 'Cannot bid on this quote' });
+        if (quote.tasker.toString() !== taskerId) {
+            return res.status(403).json({
+                message: 'Unauthorized: Only the assigned tasker can bid on this quote'
+            });
         }
 
-        // Validate inputs
-        if (!bidAmount || bidAmount <= 0) {
-            return res.status(400).json({ message: 'Valid bid amount is required' });
+        // Check if quote status allows bidding
+        const nonBiddableStatuses = ['accepted', 'completed', 'in_progress', 'cancelled', 'expired'];
+        if (nonBiddableStatuses.includes(quote.status)) {
+            return res.status(400).json({
+                message: `Cannot bid on a quote with status: ${quote.status}`
+            });
         }
 
+        // ✅ Calculate fees
+        const fees = calculateQuoteFees(bidAmountInCents);
+
+        console.log('💰 DOUBLE-SIDED FEE Quote Bid Breakdown:');
+        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
+        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
+        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
+        console.log(`   TOTAL CLIENT PAYS:    $${fees.totalClientPays.toFixed(2)}`);
+        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
+        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+        console.log(`   PLATFORM KEEPS:       $${fees.platformTotal.toFixed(2)}`);
+
+        // ✅ CREATE BID WITH FEE BREAKDOWN
         const newBid = {
-            bidAmount,
-            bidDescription: bidDescription || '',
-            estimatedDuration: estimatedDuration || 1,
+            tasker: new mongoose.Types.ObjectId(taskerId),
+            bidAmount: Number(bidAmount),
+            bidDescription: bidDescription?.trim() || '',
+            estimatedDuration: Number(estimatedDuration) || 1,
+            submittedAt: new Date(),
+            status: 'pending',
+
+            // Store fee breakdown for later use when accepted
+            feeBreakdown: {
+                bidAmountCents: fees.bidAmountCents,
+                clientPlatformFeeCents: fees.clientPlatformFeeCents,
+                taxOnClientFeeCents: fees.taxOnClientFeeCents,
+                totalClientPaysCents: fees.totalClientPaysCents,
+                taskerPlatformFeeCents: fees.taskerPlatformFeeCents,
+                taskerPayoutCents: fees.taskerPayoutCents,
+                platformTotalCents: fees.platformTotalCents,
+            }
         };
 
+        console.log('=== NEW BID OBJECT ===');
+        console.log(JSON.stringify(newBid, null, 2));
+
+        // Add bid to the quote
         quote.bids.push(newBid);
 
-        // Set status to 'bidded' if this is the first bid
-        const isFirstBid = quote.bids.length === 1;
-        if (isFirstBid) {
+        // Update status to 'bidded' if first bid or still pending
+        if (quote.status === 'pending' || quote.status === 'rejected') {
             quote.status = 'bidded';
         }
 
+        // Save the updated quote
         await quote.save();
 
+        // Populate for response
         const populatedQuote = await RequestQuote.findById(quoteId)
-            .populate("tasker", "firstName lastName email phone currentRole")
-            .populate("client", "firstName lastName email phone currentRole");
+            .populate('tasker', 'firstName lastName email phone currentRole')
+            .populate('client', 'firstName lastName email phone currentRole')
+            .populate('bids.tasker', 'firstName lastName');
 
-        // FIX: Get tasker details from database
-        const tasker = await User.findById(taskerId).select('firstName lastName');
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "The tasker";
-
-        // Get client details
-        const clientName = quote.client
-            ? `${quote.client.firstName} ${quote.client.lastName}`
-            : "The client";
-
-        // Format estimated duration
-        const durationText = estimatedDuration
-            ? `${estimatedDuration} hour${estimatedDuration > 1 ? 's' : ''}`
-            : "1 hour";
-
-        // Notification to client: new bid received
-        try {
-            // Debug: Log notification details
-            console.log("Creating bid notification for client:", {
-                clientId: quote.client._id,
-                taskerName,
-                bidAmount,
-                quoteTaskTitle: quote.taskTitle,
-                isFirstBid
-            });
-
-            const notificationTitle = isFirstBid
-                ? "🎉 First Bid Received!"
-                : "💰 New Bid Received!";
-
-            const notificationMessage = `${taskerName} submitted a bid of $${bidAmount} for your quote request "${quote.taskTitle}". Estimated duration: ${durationText}.${bidDescription ? ` Note: "${bidDescription.substring(0, 50)}${bidDescription.length > 50 ? '...' : ''}"` : ''} Review and respond!`;
-
-            await createNotification(
-                quote.client._id,
-                notificationTitle,
-                notificationMessage,
-                'quote-bid-received',
-                quoteId
-            );
-            console.log("✅ Notification created for client - new bid");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+        if (!populatedQuote) {
+            return res.status(500).json({ message: 'Error retrieving updated quote' });
         }
 
-        // Send confirmation notification to tasker
+        // Get names for notifications
+        const taskerName = populatedQuote.tasker
+            ? `${populatedQuote.tasker.firstName} ${populatedQuote.tasker.lastName}`
+            : 'The tasker';
+
+        const clientName = populatedQuote.client
+            ? `${populatedQuote.client.firstName} ${populatedQuote.client.lastName}`
+            : 'The client';
+
+        // Format duration
+        const duration = Number(estimatedDuration) || 1;
+        const durationText = `${duration} hour${duration !== 1 ? 's' : ''}`;
+
+        // Notification to client (show what they'll pay)
+        try {
+            const isFirstBid = quote.bids.length === 1;
+
+            const notificationTitle = isFirstBid
+                ? '🎉 First Bid Received!'
+                : '💰 New Bid Received!';
+
+            let notificationMessage = `${taskerName} submitted a bid of $${bidAmount} for your quote request "${populatedQuote.taskTitle}". `;
+            notificationMessage += `Total with fees: $${fees.totalClientPays.toFixed(2)}. `;
+            notificationMessage += `Estimated duration: ${durationText}.`;
+
+            if (bidDescription && bidDescription.trim()) {
+                const truncatedDescription = bidDescription.length > 50
+                    ? `${bidDescription.substring(0, 50)}...`
+                    : bidDescription;
+                notificationMessage += ` Note: "${truncatedDescription}"`;
+            }
+
+            notificationMessage += ' Review and respond!';
+
+            if (populatedQuote.client?._id) {
+                await createNotification(
+                    populatedQuote.client._id,
+                    notificationTitle,
+                    notificationMessage,
+                    'quote-bid-received',
+                    quoteId
+                );
+                console.log('✅ Notification sent to client');
+            }
+        } catch (notifErr) {
+            console.error('❌ Client notification failed:', notifErr.message);
+        }
+
+        // Notification to tasker (show what they'll receive)
         try {
             await createNotification(
                 taskerId,
-                "✅ Bid Submitted Successfully",
-                `Your bid of $${bidAmount} for "${quote.taskTitle}" has been submitted to ${clientName}. Estimated duration: ${durationText}. You'll be notified when they respond.`,
+                '✅ Bid Submitted Successfully',
+                `Your bid of $${bidAmount} for "${populatedQuote.taskTitle}" has been submitted. You'll receive $${fees.taskerPayout.toFixed(2)} (after 15% platform fee) when completed. ${clientName} will be notified.`,
                 'quote-bid-submitted',
                 quoteId
             );
-            console.log("✅ Confirmation notification sent to tasker");
-
+            console.log('✅ Confirmation sent to tasker');
         } catch (notifErr) {
-            console.error("❌ Failed to create tasker confirmation notification (non-blocking):", notifErr);
+            console.error('❌ Tasker notification failed:', notifErr.message);
         }
 
-        res.status(201).json({ message: 'Bid submitted successfully', quote: populatedQuote });
+        // Success - include fee breakdown in response
+        console.log('=== BID SUBMITTED SUCCESSFULLY ===');
+        res.status(201).json({
+            success: true,
+            message: 'Bid submitted successfully',
+            quote: populatedQuote,
+            feeBreakdown: {
+                bidAmount: fees.bidAmount,
+                clientPlatformFee: fees.clientPlatformFee,
+                taxOnClientFee: fees.taxOnClientFee,
+                totalClientPays: fees.totalClientPays,
+                taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPayout: fees.taskerPayout,
+                platformTotal: fees.platformTotal,
+            }
+        });
+
     } catch (error) {
-        console.error('Error submitting bid:', error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('=== ERROR SUBMITTING BID ===');
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+
+        if (error.name === 'ValidationError') {
+            console.error('Validation errors:');
+            for (const field in error.errors) {
+                console.error(`  ${field}: ${error.errors[field].message}`);
+            }
+            const messages = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({
+                message: 'Validation error',
+                errors: messages
+            });
+        }
+
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid ID format' });
+        }
+
+        res.status(500).json({
+            message: 'Server error while submitting bid',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
 
-// Accept Bid (Client endpoint: POST /api/requestQuotes/:quoteId/accept-bid/:bidId)
+
+
+
 // export const acceptBid = async (req, res) => {
 //     try {
 //         const { quoteId, bidId } = req.params;
 //         const clientId = req.user.id;
 
-//         if (!mongoose.Types.ObjectId.isValid(quoteId) || !mongoose.Types.ObjectId.isValid(bidId)) {
-//             return res.status(400).json({ message: 'Invalid quote or bid ID' });
-//         }
+//         const quote = await RequestQuote.findById(quoteId)
+//             .populate('client', 'firstName lastName email stripeCustomerId defaultPaymentMethod')
+//             .populate('tasker', 'firstName lastName email stripeConnectAccountId stripeConnectStatus');
 
-//         const quote = await RequestQuote.findById(quoteId).populate('client', 'currentRole');
 //         if (!quote) {
 //             return res.status(404).json({ message: 'Quote not found' });
 //         }
 
 //         if (quote.client._id.toString() !== clientId) {
-//             return res.status(403).json({ message: 'Unauthorized: Only the client can accept bids' });
+//             return res.status(403).json({ message: 'Unauthorized' });
 //         }
 
-//         if (quote.status !== 'bidded' && quote.status !== 'pending') {
-//             return res.status(400).json({ message: 'Cannot accept bid on this quote' });
-//         }
-
-//         // Find and update the specific bid
 //         const bid = quote.bids.id(bidId);
-//         if (!bid) {
-//             return res.status(404).json({ message: 'Bid not found' });
+//         if (!bid || bid.status !== 'pending') {
+//             return res.status(400).json({ message: 'Bid not found or already decided' });
 //         }
 
-//         if (bid.status !== 'pending') {
-//             return res.status(400).json({ message: 'Bid has already been decided' });
+//         // ⭐ Validate tasker can receive payments
+//         let taskerStripeAccountId;
+//         try {
+//             taskerStripeAccountId = await validateTaskerCanReceivePayments(quote.tasker._id);
+//         } catch (connectError) {
+//             return res.status(400).json({
+//                 error: connectError.message,
+//                 code: 'TASKER_PAYMENT_NOT_SETUP',
+//             });
 //         }
 
-//         // Accept this bid and reject others
+//         // Get client payment info
+//         const client = quote.client;
+//         if (!client.stripeCustomerId || !client.defaultPaymentMethod) {
+//             return res.status(400).json({
+//                 message: 'Please add a payment method first',
+//                 code: 'NO_PAYMENT_METHOD'
+//             });
+//         }
+
+//         // Calculate amounts
+//         const amountInCents = Math.round(bid.bidAmount * 100);
+//         const { platformFee, taskerPayout } = calculateFees(amountInCents);
+
+//         // ⭐ Create PaymentIntent with split
+//         const paymentIntent = await stripe.paymentIntents.create({
+//             amount: amountInCents,
+//             currency: 'cad',
+//             customer: client.stripeCustomerId,
+//             payment_method: client.defaultPaymentMethod,
+//             capture_method: 'manual',
+//             description: `Quote: ${quote.taskTitle}`,
+
+//             application_fee_amount: platformFee,
+//             transfer_data: {
+//                 destination: taskerStripeAccountId,
+//             },
+
+//             metadata: {
+//                 type: 'quote',
+//                 quoteId: quoteId,
+//                 bidId: bidId,
+//             },
+//             automatic_payment_methods: {
+//                 enabled: true,
+//                 allow_redirects: 'never'
+//             },
+//             confirm: true,
+//         });
+
+//         if (paymentIntent.status !== 'requires_capture') {
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed',
+//                 error: paymentIntent.last_payment_error?.message
+//             });
+//         }
+
+//         // Update bid status
 //         bid.status = 'accepted';
 //         quote.bids.forEach(b => {
-//             if (b._id.toString() !== bidId) {
-//                 b.status = 'rejected';
-//             }
+//             if (b._id.toString() !== bidId) b.status = 'rejected';
 //         });
 
 //         quote.status = 'accepted';
+//         quote.acceptedBid = {
+//             bidId: bid._id,
+//             tasker: quote.tasker._id,
+//             bidAmount: bid.bidAmount,
+//             bidDescription: bid.bidDescription,
+//             acceptedAt: new Date(),
+//         };
+
+//         // ⭐ Save payment info
+//         quote.payment = {
+//             paymentIntentId: paymentIntent.id,
+//             status: 'held',
+//             grossAmount: amountInCents,
+//             platformFee: platformFee,
+//             taskerPayout: taskerPayout,
+//             currency: 'cad',
+//             authorizedAt: new Date(),
+//         };
 
 //         await quote.save();
 
-//         const populatedQuote = await RequestQuote.findById(quoteId)
-//             .populate("tasker", "firstName lastName email phone currentRole")
-//             .populate("client", "firstName lastName email phone currentRole");
+//         // Notifications
+//         const clientName = `${client.firstName} ${client.lastName}`;
+//         const taskerName = `${quote.tasker.firstName} ${quote.tasker.lastName}`;
+//         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
 
-//         // Notification to tasker: bid accepted
 //         try {
-//             const client = await User.findById(clientId).select('firstName lastName');
 //             await createNotification(
-//                 quote.tasker,
-//                 'Bid Accepted',
-//                 `Client "${client.firstName} ${client.lastName}" accepted your bid of $${bid.bidAmount} for "${quote.taskTitle}".`,
-//                 'bid-accepted',
+//                 quote.tasker._id,
+//                 "🎉 Your Bid Was Accepted!",
+//                 `${clientName} has accepted your bid of $${bid.bidAmount} for "${quote.taskTitle}". Payment is held. You'll receive $${taskerPayoutFormatted} when completed.`,
+//                 'quote-bid-accepted',
 //                 quoteId
 //             );
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
+//             console.error("Notification failed:", notifErr);
 //         }
 
-//         res.status(200).json({ message: 'Bid accepted successfully', quote: populatedQuote });
+//         res.status(200).json({
+//             message: 'Bid accepted successfully',
+//             quote,
+//             paymentBreakdown: {
+//                 total: bid.bidAmount,
+//                 platformFee: platformFee / 100,
+//                 taskerPayout: taskerPayout / 100,
+//             }
+//         });
+
 //     } catch (error) {
 //         console.error('Error accepting bid:', error);
 //         res.status(500).json({ message: 'Server error' });
@@ -3251,32 +4529,148 @@ export const submitBid = async (req, res) => {
 // };
 
 
-export const acceptBid = async (req, res) => {
+
+
+const calculateQuoteFeesClient = (bidAmountInCents) => {
+    // Client side: adds 15% + tax on that fee
+    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
+    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
+
+    // Tasker side: deducts 15% from bid amount
+    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+    const taskerPayout = bidAmountInCents - taskerPlatformFee;
+
+    // Platform keeps both fees (client fee + tax + tasker fee)
+    const platformTotal = clientPlatformFee + taxOnClientFee + taskerPlatformFee;
+
+    // Application fee for Stripe = totalClientPays - taskerPayout
+    const applicationFee = totalClientPays - taskerPayout;
+
+    return {
+        // In cents
+        bidAmountCents: bidAmountInCents,
+        clientPlatformFeeCents: clientPlatformFee,
+        taxOnClientFeeCents: taxOnClientFee,
+        totalClientPaysCents: totalClientPays,
+        taskerPlatformFeeCents: taskerPlatformFee,
+        taskerPayoutCents: taskerPayout,
+        platformTotalCents: platformTotal,
+        applicationFeeCents: applicationFee,
+
+        // In dollars (for display)
+        bidAmount: bidAmountInCents / 100,
+        clientPlatformFee: clientPlatformFee / 100,
+        taxOnClientFee: taxOnClientFee / 100,
+        totalClientPays: totalClientPays / 100,
+        taskerPlatformFee: taskerPlatformFee / 100,
+        taskerPayout: taskerPayout / 100,
+        platformTotal: platformTotal / 100,
+        applicationFee: applicationFee / 100,
+    };
+};
+
+// NEW: Preview fees endpoint for client (before accepting bid)
+export const previewAcceptBidFees = async (req, res) => {
     try {
         const { quoteId, bidId } = req.params;
         const clientId = req.user.id;
 
-        if (!mongoose.Types.ObjectId.isValid(quoteId) || !mongoose.Types.ObjectId.isValid(bidId)) {
-            return res.status(400).json({ message: 'Invalid quote or bid ID' });
+        const quote = await RequestQuote.findById(quoteId)
+            .populate('tasker', 'firstName lastName');
+
+        if (!quote) {
+            return res.status(404).json({ message: 'Quote not found' });
+        }
+
+        if (quote.client.toString() !== clientId) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        const bid = quote.bids.id(bidId);
+        if (!bid) {
+            return res.status(404).json({ message: 'Bid not found' });
+        }
+
+        const bidAmountInCents = Math.round(bid.bidAmount * 100);
+        const fees = calculateQuoteFeesClient(bidAmountInCents);
+
+        console.log('💰 Quote Accept Fee Preview:');
+        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
+        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
+        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
+        console.log(`   YOU PAY:              $${fees.totalClientPays.toFixed(2)}`);
+        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
+        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+
+        res.status(200).json({
+            success: true,
+            bid: {
+                _id: bid._id,
+                bidAmount: bid.bidAmount,
+                bidDescription: bid.bidDescription,
+                estimatedDuration: bid.estimatedDuration,
+            },
+            tasker: {
+                firstName: quote.tasker.firstName,
+                lastName: quote.tasker.lastName,
+            },
+            taskTitle: quote.taskTitle,
+            fees: {
+                bidAmount: fees.bidAmount,
+                clientPlatformFee: fees.clientPlatformFee,
+                taxOnClientFee: fees.taxOnClientFee,
+                totalClientPays: fees.totalClientPays,
+                taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPayout: fees.taskerPayout,
+                platformTotal: fees.platformTotal,
+            }
+        });
+
+    } catch (error) {
+        console.error('Error previewing fees:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+export const acceptBid = async (req, res) => {
+    console.log('=== ACCEPT BID REQUEST ===');
+    console.log('req.body:', req.body);
+
+    try {
+        const { quoteId, bidId } = req.params;
+        const clientId = req.user.id;
+
+        const body = req.body || {};
+        const paymentMethodId = body.paymentMethodId || null;
+
+        console.log('=== ACCEPT BID WITH DOUBLE-SIDED FEES ===');
+        console.log('quoteId:', quoteId);
+        console.log('bidId:', bidId);
+        console.log('clientId:', clientId);
+        console.log('paymentMethodId:', paymentMethodId);
+
+        // Validate IDs
+        if (!mongoose.Types.ObjectId.isValid(quoteId)) {
+            return res.status(400).json({ message: 'Invalid quote ID' });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(bidId)) {
+            return res.status(400).json({ message: 'Invalid bid ID' });
         }
 
         const quote = await RequestQuote.findById(quoteId)
-            .populate('client', 'firstName lastName email currentRole')
-            .populate('tasker', 'firstName lastName email currentRole');
+            .populate('client', 'firstName lastName email phone stripeCustomerId defaultPaymentMethod address')
+            .populate('tasker', 'firstName lastName email phone stripeConnectAccountId stripeConnectStatus');
 
         if (!quote) {
             return res.status(404).json({ message: 'Quote not found' });
         }
 
         if (quote.client._id.toString() !== clientId) {
-            return res.status(403).json({ message: 'Unauthorized: Only the client can accept bids' });
+            return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        if (quote.status !== 'bidded' && quote.status !== 'pending') {
-            return res.status(400).json({ message: 'Cannot accept bid on this quote' });
-        }
-
-        // Find and update the specific bid
         const bid = quote.bids.id(bidId);
         if (!bid) {
             return res.status(404).json({ message: 'Bid not found' });
@@ -3286,168 +4680,338 @@ export const acceptBid = async (req, res) => {
             return res.status(400).json({ message: 'Bid has already been decided' });
         }
 
-        // Accept this bid and reject others
+        // Validate tasker can receive payments
+        let taskerStripeAccountId;
+        try {
+            taskerStripeAccountId = await validateTaskerCanReceivePayments(quote.tasker._id);
+            console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
+        } catch (connectError) {
+            return res.status(400).json({
+                message: connectError.message,
+                code: 'TASKER_PAYMENT_NOT_SETUP',
+            });
+        }
+
+        // Get client payment info
+        const client = quote.client;
+        const customerPaymentMethod = paymentMethodId || client.defaultPaymentMethod;
+
+        if (!client.stripeCustomerId) {
+            return res.status(400).json({
+                message: 'Please add a payment method first',
+                code: 'NO_PAYMENT_METHOD'
+            });
+        }
+
+        if (!customerPaymentMethod) {
+            return res.status(400).json({
+                message: 'Please add a payment method first',
+                code: 'NO_PAYMENT_METHOD'
+            });
+        }
+
+        // ✅ UPDATE STRIPE CUSTOMER WITH DETAILS
+        try {
+            const customerName = `${client.firstName} ${client.lastName}`.trim();
+
+            await stripe.customers.update(client.stripeCustomerId, {
+                name: customerName || undefined,
+                email: client.email || undefined,
+                phone: client.phone || undefined,
+                description: `Client - ${customerName}`,
+                metadata: {
+                    platform: 'taskallo',
+                    userId: client._id.toString(),
+                    userType: 'client',
+                    firstName: client.firstName || '',
+                    lastName: client.lastName || '',
+                },
+                // Add address if available
+                ...(client.address && {
+                    address: {
+                        line1: client.address.street || client.address.line1 || '',
+                        city: client.address.city || '',
+                        state: client.address.province || client.address.state || '',
+                        postal_code: client.address.postalCode || client.address.postal_code || '',
+                        country: client.address.country || 'CA',
+                    },
+                }),
+            });
+            console.log('✅ Stripe customer updated with details');
+        } catch (updateErr) {
+            console.error('⚠️ Failed to update Stripe customer (non-blocking):', updateErr.message);
+            // Don't fail the transaction, just log
+        }
+
+        // Calculate DOUBLE-SIDED fees
+        const bidAmountInCents = Math.round(bid.bidAmount * 100);
+        const fees = calculateQuoteFeesClient(bidAmountInCents);
+
+        console.log('💰 DOUBLE-SIDED FEE Quote Payment Breakdown:');
+        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
+        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
+        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
+        console.log(`   TOTAL CLIENT PAYS:    $${fees.totalClientPays.toFixed(2)}`);
+        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
+        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+        console.log(`   PLATFORM KEEPS:       $${fees.platformTotal.toFixed(2)}`);
+        console.log(`   Application Fee:      $${fees.applicationFee.toFixed(2)}`);
+
+        // Minimum amount check
+        if (fees.totalClientPaysCents < 50) {
+            return res.status(400).json({
+                message: 'Minimum payment amount is $0.50 CAD',
+                code: 'AMOUNT_TOO_SMALL'
+            });
+        }
+
+        // ✅ Create PaymentIntent with detailed description and receipt email
+        const clientFullName = `${client.firstName} ${client.lastName}`.trim();
+        const taskerFullName = `${quote.tasker.firstName} ${quote.tasker.lastName}`.trim();
+
+        let paymentIntent;
+        try {
+            paymentIntent = await stripe.paymentIntents.create({
+                amount: fees.totalClientPaysCents,
+                currency: 'cad',
+                customer: client.stripeCustomerId,
+                payment_method: customerPaymentMethod,
+                capture_method: 'manual',
+
+                // ✅ Add detailed description
+                description: `Quote Payment: "${quote.taskTitle}" | Client: ${clientFullName} | Tasker: ${taskerFullName}`,
+
+                // ✅ Send receipt to client's email
+                receipt_email: client.email,
+
+                // ✅ Statement descriptor (appears on bank/card statement - max 22 chars)
+                statement_descriptor: 'TASKALLO QUOTE',
+                statement_descriptor_suffix: quote.taskTitle.substring(0, 10).toUpperCase(),
+
+                application_fee_amount: fees.applicationFeeCents,
+
+                transfer_data: {
+                    destination: taskerStripeAccountId,
+                },
+
+                // ✅ Enhanced metadata
+                metadata: {
+                    type: 'quote',
+                    quoteId: quoteId,
+                    bidId: bidId,
+                    taskTitle: quote.taskTitle.substring(0, 100),
+
+                    // Client info
+                    clientId: client._id.toString(),
+                    clientName: clientFullName,
+                    clientEmail: client.email || '',
+                    clientPhone: client.phone || '',
+
+                    // Tasker info
+                    taskerId: quote.tasker._id.toString(),
+                    taskerName: taskerFullName,
+                    taskerEmail: quote.tasker.email || '',
+
+                    // Amounts
+                    bidAmount: fees.bidAmount.toString(),
+                    totalClientPays: fees.totalClientPays.toString(),
+                    taskerPayout: fees.taskerPayout.toString(),
+                    platformFee: fees.platformTotal.toString(),
+
+                    feeStructure: 'double-sided-15-percent',
+                    platform: 'taskallo',
+                },
+
+                // ✅ Shipping/billing details (optional - for better records)
+                shipping: {
+                    name: clientFullName,
+                    phone: client.phone || '',
+                    address: {
+                        line1: client.address?.street || client.address?.line1 || 'N/A',
+                        city: client.address?.city || '',
+                        state: client.address?.province || client.address?.state || '',
+                        postal_code: client.address?.postalCode || client.address?.postal_code || '',
+                        country: client.address?.country || 'CA',
+                    },
+                },
+
+                automatic_payment_methods: {
+                    enabled: true,
+                    allow_redirects: 'never'
+                },
+                confirm: true,
+            });
+
+            console.log('✅ PaymentIntent created:', paymentIntent.id);
+            console.log('   Status:', paymentIntent.status);
+
+        } catch (stripeError) {
+            console.error('❌ Stripe PaymentIntent creation failed:', stripeError);
+
+            if (stripeError.type === 'StripeCardError') {
+                return res.status(400).json({
+                    message: stripeError.message,
+                    code: 'CARD_ERROR',
+                    decline_code: stripeError.decline_code
+                });
+            }
+
+            return res.status(400).json({
+                message: 'Payment authorization failed: ' + stripeError.message,
+                code: 'PAYMENT_FAILED',
+            });
+        }
+
+        if (paymentIntent.status !== 'requires_capture') {
+            console.error('❌ Unexpected payment status:', paymentIntent.status);
+
+            try {
+                await stripe.paymentIntents.cancel(paymentIntent.id);
+            } catch (e) {
+                console.error('Could not cancel PaymentIntent:', e);
+            }
+
+            return res.status(400).json({
+                message: 'Payment authorization failed',
+                code: 'AUTHORIZATION_FAILED',
+                error: paymentIntent.last_payment_error?.message
+            });
+        }
+
+        // Update bid status
         bid.status = 'accepted';
         quote.bids.forEach(b => {
-            if (b._id.toString() !== bidId) {
-                b.status = 'rejected';
-            }
+            if (b._id.toString() !== bidId) b.status = 'rejected';
         });
 
         quote.status = 'accepted';
+        quote.acceptedAt = new Date();
+        quote.acceptedBid = {
+            bidId: bid._id,
+            tasker: quote.tasker._id,
+            bidAmount: bid.bidAmount,
+            bidDescription: bid.bidDescription,
+            acceptedAt: new Date(),
+        };
+
+        // Save COMPLETE payment info with fee breakdown
+        quote.payment = {
+            paymentIntentId: paymentIntent.id,
+            status: 'held',
+            currency: 'cad',
+            authorizedAt: new Date(),
+            feeStructure: 'double-sided-15-percent',
+
+            bidAmountCents: fees.bidAmountCents,
+            clientPlatformFeeCents: fees.clientPlatformFeeCents,
+            taxOnClientFeeCents: fees.taxOnClientFeeCents,
+            totalClientPaysCents: fees.totalClientPaysCents,
+            taskerPlatformFeeCents: fees.taskerPlatformFeeCents,
+            taskerPayoutCents: fees.taskerPayoutCents,
+            applicationFeeCents: fees.applicationFeeCents,
+
+            grossAmount: fees.totalClientPaysCents,
+            platformFee: fees.applicationFeeCents,
+            taskerPayout: fees.taskerPayoutCents,
+        };
 
         await quote.save();
+        console.log('✅ Quote updated and saved');
 
-        const populatedQuote = await RequestQuote.findById(quoteId)
-            .populate("tasker", "firstName lastName email phone currentRole")
-            .populate("client", "firstName lastName email phone currentRole");
-
-        // FIX: Get client details from database
-        const client = await User.findById(clientId).select('firstName lastName');
-        const clientName = client
-            ? `${client.firstName} ${client.lastName}`
-            : "The client";
-
-        // Get tasker details
-        const taskerName = quote.tasker
-            ? `${quote.tasker.firstName} ${quote.tasker.lastName}`
-            : "The tasker";
-
-        // Format estimated duration
-        const durationText = bid.estimatedDuration
-            ? `${bid.estimatedDuration} hour${bid.estimatedDuration > 1 ? 's' : ''}`
-            : "1 hour";
-
-        // Notification to tasker: bid accepted
+        // Notifications
         try {
-            // Debug: Log notification details
-            console.log("Creating bid accepted notification for tasker:", {
-                taskerId: quote.tasker._id,
-                clientName,
-                bidAmount: bid.bidAmount,
-                quoteTaskTitle: quote.taskTitle
-            });
-
             await createNotification(
                 quote.tasker._id,
-                "🎉 Congratulations! Your Bid Was Accepted!",
-                `${clientName} has accepted your bid of $${bid.bidAmount} for "${quote.taskTitle}"! Estimated duration: ${durationText}. You can now proceed with the service.`,
+                "🎉 Your Bid Was Accepted!",
+                `${clientFullName} has accepted your bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Payment of $${fees.totalClientPays.toFixed(2)} is held. You'll receive $${fees.taskerPayout.toFixed(2)} when completed.`,
                 'quote-bid-accepted',
                 quoteId
             );
-            console.log("✅ Notification created for tasker - bid accepted");
-
+            console.log('✅ Notification sent to tasker');
         } catch (notifErr) {
-            console.error("❌ Failed to create tasker notification (non-blocking):", notifErr);
+            console.error('❌ Tasker notification failed:', notifErr.message);
         }
 
-        // Send confirmation notification to client
         try {
             await createNotification(
                 clientId,
-                "✅ Bid Acceptance Confirmed",
-                `You have accepted ${taskerName}'s bid of $${bid.bidAmount} for "${quote.taskTitle}". Estimated duration: ${durationText}. You can now coordinate with the tasker!`,
-                'quote-bid-accept-confirmed',
+                "✅ Bid Accepted - Payment Held",
+                `You've accepted ${taskerFullName}'s bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Total charged: $${fees.totalClientPays.toFixed(2)}. Payment is held until completion.`,
+                'quote-bid-accepted-client',
                 quoteId
             );
-            console.log("✅ Confirmation notification sent to client");
-
+            console.log('✅ Confirmation sent to client');
         } catch (notifErr) {
-            console.error("❌ Failed to create client confirmation notification (non-blocking):", notifErr);
+            console.error('❌ Client notification failed:', notifErr.message);
         }
 
-        // Prompt to book or schedule
-        try {
-            await createNotification(
-                clientId,
-                "📅 Ready to Schedule?",
-                `Your bid for "${quote.taskTitle}" was accepted. Contact ${taskerName} to schedule the service or create a booking!`,
-                "booking-prompt",
-                quoteId
-            );
-            console.log("✅ Booking prompt notification sent to client");
+        // Populate for response
+        const populatedQuote = await RequestQuote.findById(quoteId)
+            .populate('tasker', 'firstName lastName email phone profilePicture')
+            .populate('client', 'firstName lastName email phone');
 
-        } catch (notifErr) {
-            console.error("❌ Failed to create booking prompt notification (non-blocking):", notifErr);
-        }
+        console.log('=== BID ACCEPTED SUCCESSFULLY ===');
 
-        res.status(200).json({ message: 'Bid accepted successfully', quote: populatedQuote });
+        res.status(200).json({
+            success: true,
+            message: 'Bid accepted successfully',
+            quote: populatedQuote,
+            paymentBreakdown: {
+                bidAmount: fees.bidAmount,
+                clientPlatformFee: fees.clientPlatformFee,
+                taxOnClientFee: fees.taxOnClientFee,
+                totalClientPays: fees.totalClientPays,
+                taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPayout: fees.taskerPayout,
+                platformTotal: fees.platformTotal,
+                applicationFee: fees.applicationFee,
+                currency: 'cad',
+                status: 'held',
+            }
+        });
+
     } catch (error) {
-        console.error('Error accepting bid:', error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('=== ERROR ACCEPTING BID ===');
+        console.error('Error:', error);
+        res.status(500).json({
+            message: 'Server error while accepting bid',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
+// Helper function - make sure this is defined
+// const validateTaskerCanReceivePayments = async (taskerId) => {
+//     const tasker = await User.findById(taskerId);
 
-
-
-// Reject Bid (Client endpoint: POST /api/requestQuotes/:quoteId/reject-bid/:bidId)
-// export const rejectBid = async (req, res) => {
-//     try {
-//         const { quoteId, bidId } = req.params;
-//         const clientId = req.user.id;
-
-//         if (!mongoose.Types.ObjectId.isValid(quoteId) || !mongoose.Types.ObjectId.isValid(bidId)) {
-//             return res.status(400).json({ message: 'Invalid quote or bid ID' });
-//         }
-
-//         const quote = await RequestQuote.findById(quoteId).populate('client', 'currentRole');
-//         if (!quote) {
-//             return res.status(404).json({ message: 'Quote not found' });
-//         }
-
-//         if (quote.client._id.toString() !== clientId) {
-//             return res.status(403).json({ message: 'Unauthorized: Only the client can reject bids' });
-//         }
-
-//         if (quote.status !== 'bidded' && quote.status !== 'pending') {
-//             return res.status(400).json({ message: 'Cannot reject bid on this quote' });
-//         }
-
-//         // Find and update the specific bid
-//         const bid = quote.bids.id(bidId);
-//         if (!bid) {
-//             return res.status(404).json({ message: 'Bid not found' });
-//         }
-
-//         if (bid.status !== 'pending') {
-//             return res.status(400).json({ message: 'Bid has already been decided' });
-//         }
-
-//         bid.status = 'rejected';
-//         await quote.save();
-
-//         // Check if all bids are rejected and no accepted; if so, set quote to 'rejected'
-//         const hasPendingBids = quote.bids.some(b => b.status === 'pending');
-//         const hasAcceptedBid = quote.bids.some(b => b.status === 'accepted');
-//         if (!hasPendingBids && !hasAcceptedBid) {
-//             quote.status = 'rejected';
-//             await quote.save();
-//         }
-
-//         const populatedQuote = await RequestQuote.findById(quoteId)
-//             .populate("tasker", "firstName lastName email phone currentRole")
-//             .populate("client", "firstName lastName email phone currentRole");
-
-//         // Notification to tasker: bid rejected
-//         try {
-//             const client = await User.findById(clientId).select('firstName lastName');
-//             await createNotification(
-//                 quote.tasker,
-//                 'Bid Rejected',
-//                 `Client "${client.firstName} ${client.lastName}" rejected your bid of $${bid.bidAmount} for "${quote.taskTitle}". You can submit another bid if desired.`,
-//                 'bid-rejected',
-//                 quoteId
-//             );
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
-//         }
-
-//         res.status(200).json({ message: 'Bid rejected successfully', quote: populatedQuote });
-//     } catch (error) {
-//         console.error('Error rejecting bid:', error);
-//         res.status(500).json({ message: 'Server error' });
+//     if (!tasker) {
+//         throw new Error('Tasker not found');
 //     }
+
+//     if (!tasker.stripeConnectAccountId) {
+//         throw new Error('Tasker has not set up payment receiving');
+//     }
+
+//     if (tasker.stripeConnectStatus !== 'active') {
+//         throw new Error('Tasker payment account is not active');
+//     }
+
+//     // Verify with Stripe
+//     const account = await stripe.accounts.retrieve(tasker.stripeConnectAccountId);
+
+//     if (!account.charges_enabled || !account.payouts_enabled) {
+//         throw new Error('Tasker payment account is not fully set up');
+//     }
+
+//     return tasker.stripeConnectAccountId;
 // };
+
+
+
+
+
+
+
+
 
 export const rejectBid = async (req, res) => {
     try {

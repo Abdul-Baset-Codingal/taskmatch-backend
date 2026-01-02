@@ -8,6 +8,13 @@ import taskRoutes from "./routes/taskRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import taskerRoutes from "./routes/taskerRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
+import adminPaymentRoutes from "./routes/adminPaymentRoutes.js";
+import taskerPayoutRoutes from "./routes/taskerPayoutRoutes.js";
+import webhookRoutes from "./routes/webhookRoutes.js";
+import stripeConnect from "./routes/stripeConnectRoutes.js"
+import paymentRoutes from "./routes/paymentRoutes.js"
+import stripeConnectRoutes from './routes/stripeConnect.js';  // ✅ Import
+import clientPaymentRoutes from './routes/clientPaymentRoutes.js';
 
 const app = express();
 
@@ -16,7 +23,11 @@ const allowedOrigins = [
     "https://www.taskallo.com",
     "https://taskallo.com",
     "http://localhost:3000",
+    "https://taskmatch-tau.vercel.app",
+    "https://taskmatch-backend.vercel.app"
 ];
+
+
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -53,12 +64,21 @@ app.get("/", (req, res) => {
     });
 });
 
+
+app.use('/api/webhooks', webhookRoutes);
+
 // API Routes
 app.use("/api/services", serviceRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/taskerBookings", taskerRoutes);
+app.use("/api/admin/payments", adminPaymentRoutes);
+app.use('/api/tasker', taskerPayoutRoutes);
+app.use('/api/stripe-connect', stripeConnect);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/stripe/connect', stripeConnectRoutes);
+app.use('/api/payments/client', clientPaymentRoutes);
 
 app.get('/api/test', (req, res) => {
     res.json({ message: "Test route working!" });
