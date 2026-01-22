@@ -38,6 +38,8 @@ import {
   getUnreadCount,
   createSetupIntentForBid,
   confirmBidPaymentSetup,
+  getTasksBiddedByTasker,
+  getTaskerBidStats,
 } from "../controllers/taskController.js";
 import verifyToken from "../middlewares/verifyToken.js";
 import upload from "../utils/multerConfig.js";
@@ -58,7 +60,8 @@ router.get("/taskertasks/:id", getTasksByTaskerIdAndStatus)
 router.get('/check-payment-method', protectRoute, checkPaymentMethod)
 router.get('/:taskId/messages/unread-count', verifyToken, getUnreadCount);
 router.get('/:taskId/messages/status', verifyToken, getMessageStatus);
-
+router.get('/my-bids', verifyToken , getTasksBiddedByTasker);
+router.get('/my-bids/stats', verifyToken, getTaskerBidStats);
 router.post(
   "/",
   (req, res, next) => {

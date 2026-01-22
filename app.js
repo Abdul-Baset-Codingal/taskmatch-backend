@@ -15,6 +15,14 @@ import stripeConnect from "./routes/stripeConnectRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
 import stripeConnectRoutes from './routes/stripeConnect.js';  // ✅ Import
 import clientPaymentRoutes from './routes/clientPaymentRoutes.js';
+import clientPaymentHistoryRoutes from './routes/paymentHistoryRoutes.js';
+import taskerPaymentRoutes from './routes/paymentHistoryTaskerRoutes.js'
+import adminTaskRoutes from "./routes/adminTaskRoutes.js";
+import adminBookingRoutes from './routes/adminBookingRoutes.js';
+import adminQuoteRoutes from './routes/adminQuoteRoutes.js';
+import adminDashboardPaymentRoutes from './routes/adminDashboardPaymentRoutes.js';
+import adminLogs from "./routes/adminLogRoutes.js"
+import blogRoutes from "./routes/blogRoutes.js";
 
 const app = express();
 
@@ -79,6 +87,15 @@ app.use('/api/stripe-connect', stripeConnect);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/stripe/connect', stripeConnectRoutes);
 app.use('/api/payments/client', clientPaymentRoutes);
+app.use('/api/paymentsHistory', clientPaymentHistoryRoutes);
+app.use('/api/paymentsHistoryTasker', taskerPaymentRoutes);
+app.use("/api/admin/tasks", adminTaskRoutes);
+app.use('/api/admin/bookings', adminBookingRoutes);
+app.use('/api/admin/quotes', adminQuoteRoutes);
+app.use('/api/admin/dashboardPayments', adminDashboardPaymentRoutes);
+app.use('/api/admin/adminLogs', adminLogs);
+app.use("/api/blogs", blogRoutes);
+
 
 app.get('/api/test', (req, res) => {
     res.json({ message: "Test route working!" });

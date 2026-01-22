@@ -1,6 +1,6 @@
 // authRoutes.js
 import express from "express";
-import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole, toggleTaskerProfileCheck, submitTaskerApplication, approveRejectTasker, sendOtp, forgotPassword, verifyResetOtp, resetPassword, resendResetOtp, checkEmailExists, checkPhoneExists } from "../controllers/authController.js";
+import { signup, login, logout, verifyToken, getAllUsers, deleteUser, toggleBlockUser, getTaskersByCategory, getUserById, submitRating, getTopTaskerReviews, updateProfile, switchRole, toggleTaskerProfileCheck, submitTaskerApplication, approveRejectTasker, sendOtp, forgotPassword, verifyResetOtp, resetPassword, resendResetOtp, checkEmailExists, checkPhoneExists, getAdminUsers, exportUsers, getAdminUserById, updateUserStatus, bulkUpdateUsers } from "../controllers/authController.js";
 import upload from "../utils/multerConfig.js";
 import { getNotifications, markAllAsRead, markAsRead } from "../controllers/notificationController.js";
 import protectRoute from "../middlewares/authMiddleware.js";
@@ -16,6 +16,16 @@ router.get('/taskers', getTaskersByCategory);
 // Add this route
 router.get('/check-email', checkEmailExists);
 router.get('/check-phone', checkPhoneExists);
+
+// admin
+router.get('/admin/users', getAdminUsers);
+router.get('/admin/users/export', exportUsers);
+router.get('/admin/users/:id', getAdminUserById);
+router.patch('/admin/users/:id/status', updateUserStatus);
+router.patch('/admin/users/bulk',  bulkUpdateUsers);
+
+
+// --------------------------------
 router.post("/signup", upload.single('profilePicture'), signup);
 router.post('/send-otp', sendOtp);
 router.post("/login", login);

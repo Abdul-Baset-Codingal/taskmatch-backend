@@ -5,525 +5,78 @@ import RequestQuote from "../models/requestQuote.js";
 import User from "../models/user.js";
 import { createNotification } from "./notificationHelper.js";
 import { validateTaskerCanReceivePayments, calculateFees } from "../utils/stripeConnect.js";
+import { logBooking, logPayment, logActivity, logQuoteRequest } from "../utils/activityLogger.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Create Booking
 
 
-
-
-
-
-
-//  const createBooking = async (req, res) => {
-//     try {
-//         console.log('=== CREATE BOOKING REQUEST ===');
-//         console.log('Raw Request Body:', JSON.stringify(req.body, null, 2));
-
-//         const { taskerId, service, date, dayOfWeek } = req.body;
-//         const clientId = req.user?.id;
-
-//         // ==================== BASIC VALIDATIONS ====================
-
-//         if (!clientId) {
-//             console.log('No clientId found in req.user');
-//             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
-//         }
-
-//         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
-//             return res.status(400).json({ message: "Invalid tasker or client ID" });
-//         }
-
-//         if (!service || !service.title || !service.description || !service.hourlyRate || !service.estimatedDuration) {
-//             return res.status(400).json({ message: "Service details are required" });
-//         }
-
-//         if (!date) {
-//             console.log('Date missing in request body');
-//             return res.status(400).json({ message: "Booking date and time are required" });
-//         }
-
-//         // ==================== VALIDATE USERS ====================
-
-//         const tasker = await User.findById(taskerId);
-//         if (!tasker || tasker.currentRole !== "tasker") {
-//             return res.status(400).json({ message: "Tasker not found or invalid role" });
-//         }
-
-//         const client = await User.findById(clientId);
-//         if (!client || client.currentRole !== "client") {
-//             return res.status(400).json({ message: "Client not found or invalid role" });
-//         }
-
-//         // ==================== VALIDATE TASKER CAN RECEIVE PAYMENTS ====================
-
-//         let taskerStripeAccountId;
-//         try {
-//             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
-//             console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
-//         } catch (connectError) {
-//             console.error('❌ Tasker payment validation failed:', connectError.message);
-//             return res.status(400).json({
-//                 message: connectError.message,
-//                 code: 'TASKER_PAYMENT_NOT_SETUP',
-//                 action: 'The tasker needs to complete their payment setup before accepting bookings.'
-//             });
-//         }
-
-//         // ==================== VALIDATE CLIENT PAYMENT METHOD ====================
-
-//         if (!client.stripeCustomerId) {
-//             return res.status(400).json({
-//                 message: 'Please add a payment method first',
-//                 code: 'NO_CUSTOMER_ID',
-//                 action: 'Add a credit or debit card to proceed with booking.'
-//             });
-//         }
-
-//         if (!client.defaultPaymentMethod) {
-//             return res.status(400).json({
-//                 message: 'No saved payment method. Please add one.',
-//                 code: 'NO_PAYMENT_METHOD',
-//                 action: 'Add a credit or debit card to proceed with booking.'
-//             });
-//         }
-
-//         // Verify payment method is valid and attached to customer
-//         let customerId = client.stripeCustomerId;
-//         let paymentMethodId = client.defaultPaymentMethod;
-
-//         try {
-//             const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
-
-//             console.log("=== PAYMENT METHOD DEBUG ===");
-//             console.log("Payment Method ID:", paymentMethodId);
-//             console.log("Payment Method belongs to customer:", paymentMethod.customer);
-//             console.log("User's stored stripeCustomerId:", customerId);
-
-//             if (!paymentMethod.customer) {
-//                 return res.status(400).json({
-//                     message: 'Payment method is not properly set up. Please re-add your card.',
-//                     code: 'PAYMENT_METHOD_NOT_ATTACHED'
-//                 });
-//             }
-
-//             // Fix customer ID mismatch if needed
-//             if (paymentMethod.customer !== customerId) {
-//                 console.log(`⚠️ MISMATCH! Updating customer ID from ${customerId} to ${paymentMethod.customer}`);
-//                 client.stripeCustomerId = paymentMethod.customer;
-//                 await client.save();
-//                 customerId = paymentMethod.customer;
-//             }
-//         } catch (pmError) {
-//             console.error("Error verifying payment method:", pmError);
-//             client.defaultPaymentMethod = null;
-//             await client.save();
-//             return res.status(400).json({
-//                 message: 'Your saved payment method is invalid or expired. Please add a new card.',
-//                 code: 'INVALID_PAYMENT_METHOD'
-//             });
-//         }
-
-//         // ==================== PARSE AND VALIDATE DATE ====================
-
-//         const bookingDate = new Date(date);
-//         console.log('Parsed bookingDate:', bookingDate, 'ISO:', bookingDate.toISOString());
-
-//         if (isNaN(bookingDate.getTime())) {
-//             console.log('Invalid date format:', date);
-//             return res.status(400).json({ message: "Invalid date format" });
-//         }
-
-//         // Check if booking is in the past
-//         if (bookingDate < new Date()) {
-//             return res.status(400).json({ message: "Cannot book a time in the past" });
-//         }
-
-//         // ==================== VALIDATE AVAILABILITY ====================
-
-//         let dayName;
-
-//         if (dayOfWeek) {
-//             dayName = dayOfWeek;
-//             console.log('Using dayOfWeek from frontend:', dayName);
-//         } else {
-//             const dateParts = date.split('T')[0].split('-');
-//             const year = parseInt(dateParts[0]);
-//             const month = parseInt(dateParts[1]) - 1;
-//             const day = parseInt(dateParts[2]);
-//             const localDate = new Date(year, month, day);
-//             dayName = getDayNameFromDate(localDate);
-//             console.log('Calculated dayName from date parts:', dayName);
-//         }
-
-//         console.log('Final dayName for availability check:', dayName);
-//         console.log('Tasker availability:', tasker.availability?.map(a => a.day));
-
-//         if (!tasker.availability || tasker.availability.length === 0) {
-//             return res.status(400).json({
-//                 message: "Tasker has not set their availability",
-//             });
-//         }
-
-//         const availability = tasker.availability.find(slot =>
-//             slot.day.toLowerCase() === dayName.toLowerCase()
-//         );
-
-//         if (!availability) {
-//             return res.status(400).json({
-//                 message: `Tasker is not available on ${dayName}`,
-//                 debug: {
-//                     requestedDay: dayName,
-//                     availableDays: tasker.availability.map(a => a.day),
-//                     receivedDate: date,
-//                     receivedDayOfWeek: dayOfWeek
-//                 }
-//             });
-//         }
-
-//         // ==================== VALIDATE TIME SLOT ====================
-
-//         const timePart = date.includes('T') ? date.split('T')[1] : null;
-//         let hours, minutes;
-
-//         if (timePart) {
-//             const timeMatch = timePart.match(/(\d{2}):(\d{2})/);
-//             if (timeMatch) {
-//                 hours = parseInt(timeMatch[1]);
-//                 minutes = parseInt(timeMatch[2]);
-//             } else {
-//                 hours = bookingDate.getHours();
-//                 minutes = bookingDate.getMinutes();
-//             }
-//         } else {
-//             hours = bookingDate.getHours();
-//             minutes = bookingDate.getMinutes();
-//         }
-
-//         console.log('Booking time:', hours, ':', minutes);
-
-//         const [startHour, startMinute] = availability.from.split(':').map(Number);
-//         const [endHour, endMinute] = availability.to.split(':').map(Number);
-//         const bookingTimeInMinutes = hours * 60 + minutes;
-//         const startTimeInMinutes = startHour * 60 + startMinute;
-//         const endTimeInMinutes = endHour * 60 + endMinute;
-
-//         console.log('Time check:', {
-//             bookingTime: bookingTimeInMinutes,
-//             startTime: startTimeInMinutes,
-//             endTime: endTimeInMinutes
-//         });
-
-//         if (bookingTimeInMinutes < startTimeInMinutes || bookingTimeInMinutes >= endTimeInMinutes) {
-//             return res.status(400).json({
-//                 message: `Booking time must be between ${availability.from} and ${availability.to} on ${dayName}`
-//             });
-//         }
-
-//         // ==================== CHECK FOR CONFLICTING BOOKINGS ====================
-
-//         const startOfDay = new Date(bookingDate);
-//         startOfDay.setHours(0, 0, 0, 0);
-//         const endOfDay = new Date(bookingDate);
-//         endOfDay.setHours(23, 59, 59, 999);
-
-//         const existingBooking = await BookingTasker.findOne({
-//             tasker: taskerId,
-//             date: {
-//                 $gte: startOfDay,
-//                 $lte: endOfDay
-//             },
-//             status: { $in: ['pending', 'confirmed'] }
-//         });
-
-//         if (existingBooking) {
-//             const existingTime = new Date(existingBooking.date);
-//             const existingHours = existingTime.getHours();
-//             const existingMinutes = existingTime.getMinutes();
-
-//             // Check if times overlap (simple check - same hour)
-//             if (Math.abs(hours - existingHours) < 1) {
-//                 return res.status(400).json({
-//                     message: "This time slot is already booked. Please choose another time."
-//                 });
-//             }
-//         }
-
-//         // ==================== CALCULATE PAYMENT AMOUNTS ====================
-
-//         const amountInCents = Math.round(service.hourlyRate * 100);
-//         const { platformFee, taskerPayout } = calculateFees(amountInCents);
-
-//         console.log("💰 Booking payment breakdown:");
-//         console.log("  Service Rate: $", service.hourlyRate);
-//         console.log("  Amount in cents:", amountInCents);
-//         console.log("  Platform Fee (15%): $", platformFee / 100);
-//         console.log("  Tasker Payout (85%): $", taskerPayout / 100);
-//         console.log("  Tasker Stripe Account:", taskerStripeAccountId);
-
-//         // ==================== CREATE PAYMENT INTENT WITH STRIPE CONNECT ====================
-
-//         let paymentIntent;
-//         try {
-//             paymentIntent = await stripe.paymentIntents.create({
-//                 amount: amountInCents,
-//                 currency: 'cad',
-//                 customer: customerId,
-//                 payment_method: paymentMethodId,
-//                 capture_method: 'manual',  // HOLD - don't capture until service is completed
-//                 description: `Booking: ${service.title} with ${tasker.firstName} ${tasker.lastName}`,
-
-//                 // ⭐ STRIPE CONNECT - Automatic split
-//                 application_fee_amount: platformFee,  // 15% goes to Taskallo
-//                 transfer_data: {
-//                     destination: taskerStripeAccountId,  // 85% goes to Tasker
-//                 },
-
-//                 metadata: {
-//                     type: 'booking',
-//                     taskerId: taskerId.toString(),
-//                     clientId: clientId.toString(),
-//                     taskerName: `${tasker.firstName} ${tasker.lastName}`,
-//                     clientName: `${client.firstName} ${client.lastName}`,
-//                     serviceTitle: service.title,
-//                     serviceRate: service.hourlyRate.toString(),
-//                     platformFee: platformFee.toString(),
-//                     taskerPayout: taskerPayout.toString(),
-//                     bookingDate: bookingDate.toISOString(),
-//                 },
-
-//                 automatic_payment_methods: {
-//                     enabled: true,
-//                     allow_redirects: 'never'
-//                 },
-//                 confirm: true,  // Confirm immediately
-//             });
-
-//             console.log("✅ PaymentIntent created:", paymentIntent.id);
-//             console.log("   Status:", paymentIntent.status);
-
-//         } catch (stripeError) {
-//             console.error("❌ Stripe PaymentIntent creation failed:", stripeError);
-
-//             // Handle specific Stripe errors
-//             if (stripeError.type === 'StripeCardError') {
-//                 return res.status(400).json({
-//                     message: stripeError.message,
-//                     code: 'CARD_ERROR',
-//                     decline_code: stripeError.decline_code
-//                 });
-//             }
-
-//             if (stripeError.code === 'insufficient_funds') {
-//                 return res.status(400).json({
-//                     message: 'Insufficient funds on your card. Please try another card.',
-//                     code: 'INSUFFICIENT_FUNDS'
-//                 });
-//             }
-
-//             return res.status(400).json({
-//                 message: 'Payment authorization failed. Please try again.',
-//                 code: 'PAYMENT_FAILED',
-//                 error: stripeError.message
-//             });
-//         }
-
-//         // Verify payment was authorized (held)
-//         if (paymentIntent.status !== 'requires_capture') {
-//             console.error("❌ Unexpected payment status:", paymentIntent.status);
-
-//             // Try to cancel the payment intent
-//             try {
-//                 await stripe.paymentIntents.cancel(paymentIntent.id);
-//             } catch (e) {
-//                 console.error("Could not cancel PaymentIntent:", e);
-//             }
-
-//             return res.status(400).json({
-//                 message: 'Payment authorization failed',
-//                 code: 'AUTHORIZATION_FAILED',
-//                 error: paymentIntent.last_payment_error?.message || 'Unknown error'
-//             });
-//         }
-
-//         // ==================== CREATE BOOKING ====================
-
-//         console.log('Creating Booking with:', {
-//             tasker: taskerId,
-//             client: clientId,
-//             service: service.title,
-//             date: bookingDate,
-//             paymentIntentId: paymentIntent.id,
-//             status: "confirmed"
-//         });
-
-//         const booking = new BookingTasker({
-//             tasker: taskerId,
-//             client: clientId,
-//             service: {
-//                 title: service.title,
-//                 description: service.description,
-//                 hourlyRate: service.hourlyRate,
-//                 estimatedDuration: service.estimatedDuration,
-//             },
-//             date: bookingDate,
-//             totalAmount: service.hourlyRate,
-//             status: "confirmed",
-//             confirmedAt: new Date(),
-
-//             // Payment Info (backward compatible)
-//             paymentIntentId: paymentIntent.id,
-//             stripeStatus: 'authorized',
-//             paymentMethod: paymentMethodId,
-
-//             // ⭐ NEW: Detailed payment breakdown
-//             payment: {
-//                 paymentIntentId: paymentIntent.id,
-//                 status: 'held',
-//                 grossAmount: amountInCents,
-//                 platformFee: platformFee,
-//                 taskerPayout: taskerPayout,
-//                 currency: 'cad',
-//                 authorizedAt: new Date(),
-//             },
-
-//             // Payment details for records
-//             paymentDetails: {
-//                 amountCaptured: 0,  // Will be updated when captured
-//                 currency: 'cad',
-//                 paymentMethodType: 'card',
-//                 billingDetails: {
-//                     name: `${client.firstName} ${client.lastName}`,
-//                     email: client.email,
-//                     phone: client.phone,
-//                 }
-//             },
-//         });
-
-//         await booking.save();
-//         console.log("✅ Booking saved:", booking._id);
-
-//         // ==================== POPULATE BOOKING FOR RESPONSE ====================
-
-//         const populatedBooking = await BookingTasker.findById(booking._id)
-//             .populate("tasker", "firstName lastName email phone profilePicture currentRole rating reviewCount")
-//             .populate("client", "firstName lastName email phone profilePicture currentRole");
-
-//         // ==================== SEND NOTIFICATIONS ====================
-
-//         const clientName = `${client.firstName} ${client.lastName}`;
-//         const taskerName = `${tasker.firstName} ${tasker.lastName}`;
-//         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
-//         const serviceAmount = service.hourlyRate.toFixed(2);
-
-//         // Format date for notifications
-//         const formattedDate = bookingDate.toLocaleDateString('en-US', {
-//             weekday: 'long',
-//             year: 'numeric',
-//             month: 'long',
-//             day: 'numeric',
-//             hour: '2-digit',
-//             minute: '2-digit'
-//         });
-
-//         // Notification for tasker
-//         try {
-//             await createNotification(
-//                 taskerId,
-//                 "🎉 New Confirmed Booking!",
-//                 `${clientName} has booked your service "${service.title}" on ${formattedDate}. Payment of $${serviceAmount} is held securely. You'll receive $${taskerPayoutFormatted} when the service is completed.`,
-//                 "booking-confirmed",
-//                 booking._id
-//             );
-//             console.log("✅ Notification sent to tasker");
-//         } catch (notifErr) {
-//             console.error("❌ Tasker notification failed:", notifErr);
-//         }
-
-//         // Notification for client
-//         try {
-//             await createNotification(
-//                 clientId,
-//                 "✅ Booking Confirmed!",
-//                 `Your booking for "${service.title}" with ${taskerName} on ${formattedDate} has been confirmed. A hold of $${serviceAmount} has been placed on your card and will be charged when the service is completed.`,
-//                 "booking-confirmed",
-//                 booking._id
-//             );
-//             console.log("✅ Notification sent to client");
-//         } catch (notifErr) {
-//             console.error("❌ Client notification failed:", notifErr);
-//         }
-
-//         // ==================== SEND RESPONSE ====================
-
-//         res.status(201).json({
-//             success: true,
-//             message: "Booking created and confirmed successfully",
-//             booking: populatedBooking,
-//             paymentBreakdown: {
-//                 total: service.hourlyRate,
-//                 totalInCents: amountInCents,
-//                 platformFee: platformFee / 100,
-//                 platformFeeInCents: platformFee,
-//                 taskerPayout: taskerPayout / 100,
-//                 taskerPayoutInCents: taskerPayout,
-//                 currency: 'cad',
-//                 status: 'held',  // Money is held, not captured yet
-//             },
-//             paymentInfo: {
-//                 paymentIntentId: paymentIntent.id,
-//                 status: paymentIntent.status,
-//                 message: 'Payment is authorized and held. It will be captured when the service is completed.',
-//             }
-//         });
-
-//     } catch (error) {
-//         console.error("❌ Error creating booking:", error);
-
-//         // If it's a validation error, return specific message
-//         if (error.name === 'ValidationError') {
-//             const messages = Object.values(error.errors).map(e => e.message);
-//             return res.status(400).json({
-//                 message: messages.join(', '),
-//                 code: 'VALIDATION_ERROR'
-//             });
-//         }
-
-//         res.status(500).json({
-//             message: "Server error while creating booking",
-//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
-//         });
-//     }
-// };
-
-
-
-// Fee constants
-const PLATFORM_FEE_PERCENT = 0.15;  // 15%
-const TAX_PERCENT = 0.13;           // 13% HST
-
-const calculateDoubleSidedFees = (bidAmountInCents) => {
-    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
-    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
-    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taskerPayout = bidAmountInCents - taskerPlatformFee;
+// CLIENT SIDE
+const CLIENT_PLATFORM_FEE_PERCENT = 0.10;  // 10%
+const RESERVATION_FEE_CENTS = 500;          // $5 flat fee
+const CLIENT_TAX_PERCENT = 0.13;            // 13% HST on service amount
+
+// TASKER SIDE
+const TASKER_PLATFORM_FEE_PERCENT = 0.12;  // 12%
+const TASKER_TAX_PERCENT = 0.13;            // 13% tax
+
+/**
+ * Calculate double-sided fees for bookings
+ * Client: 10% platform fee + $5 reservation + 13% HST
+ * Tasker: 12% platform fee + 13% tax deducted
+ */
+const calculateBookingFees = (serviceAmountInCents) => {
+    // ─── CLIENT SIDE FEES (Added to service amount) ───
+    const clientPlatformFee = Math.round(serviceAmountInCents * CLIENT_PLATFORM_FEE_PERCENT);
+    const reservationFee = RESERVATION_FEE_CENTS;
+    const clientTax = Math.round(serviceAmountInCents * CLIENT_TAX_PERCENT);
+    const totalClientPays = serviceAmountInCents + clientPlatformFee + reservationFee + clientTax;
+
+    // ─── TASKER SIDE FEES (Deducted from service amount) ───
+    const taskerPlatformFee = Math.round(serviceAmountInCents * TASKER_PLATFORM_FEE_PERCENT);
+    const taskerTax = Math.round(serviceAmountInCents * TASKER_TAX_PERCENT);
+    const taskerPayout = serviceAmountInCents - taskerPlatformFee - taskerTax;
+
+    // ─── PLATFORM REVENUE ───
     const applicationFee = totalClientPays - taskerPayout;
 
     return {
-        bidAmountInCents,
+        serviceAmountInCents,
+
+        // Client fees
         clientPlatformFee,
-        taxOnClientFee,
+        reservationFee,
+        clientTax,
         totalClientPays,
+
+        // Tasker deductions
         taskerPlatformFee,
+        taskerTax,
         taskerPayout,
-        applicationFee
+
+        // Platform
+        applicationFee,
+
+        // Percentages for display
+        clientPlatformFeePercent: CLIENT_PLATFORM_FEE_PERCENT * 100,
+        clientTaxPercent: CLIENT_TAX_PERCENT * 100,
+        taskerPlatformFeePercent: TASKER_PLATFORM_FEE_PERCENT * 100,
+        taskerTaxPercent: TASKER_TAX_PERCENT * 100,
     };
 };
 
-// const createBooking = async (req, res) => {
+/**
+ * Helper function to get day name from date
+ */
+const getDayNameFromDate = (date) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[date.getDay()];
+};
 
+/**
+ * Create a new booking
+ */
+// const createBooking = async (req, res) => {
 //     let paymentIntent = null;
 
 //     try {
@@ -558,7 +111,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             return res.status(400).json({ message: "Tasker not found or invalid role" });
 //         }
 
-//         const client = await User.findById(clientId);
+//         const client = await User.findById(clientId).select('+address');
 //         if (!client || client.currentRole !== "client") {
 //             return res.status(400).json({ message: "Client not found or invalid role" });
 //         }
@@ -576,7 +129,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             });
 //         }
 
-//         // ==================== ⭐ HANDLE PAYMENT METHOD ====================
+//         // ==================== HANDLE PAYMENT METHOD ====================
 
 //         let paymentMethodId = providedPaymentMethodId;
 //         let customerId = client.stripeCustomerId;
@@ -599,17 +152,32 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             });
 //         }
 
-//         // ⭐ STEP 1: Ensure we have a Stripe Customer
+//         // STEP 1: Ensure we have a Stripe Customer
 //         if (!customerId) {
 //             console.log("Creating new Stripe Customer for client...");
 //             try {
+//                 const customerName = `${client.firstName} ${client.lastName}`.trim();
 //                 const customer = await stripe.customers.create({
 //                     email: client.email,
-//                     name: `${client.firstName} ${client.lastName}`,
+//                     name: customerName,
+//                     phone: client.phone || undefined,
+//                     description: `Client - ${customerName}`,
 //                     metadata: {
 //                         userId: client._id.toString(),
-//                         platform: 'taskallo'
-//                     }
+//                         platform: 'taskallo',
+//                         userType: 'client',
+//                         firstName: client.firstName || '',
+//                         lastName: client.lastName || '',
+//                     },
+//                     ...(client.address && {
+//                         address: {
+//                             line1: client.address.street || client.address.line1 || '',
+//                             city: client.address.city || '',
+//                             state: client.address.province || client.address.state || '',
+//                             postal_code: client.address.postalCode || client.address.postal_code || '',
+//                             country: client.address.country || 'CA',
+//                         },
+//                     }),
 //                 });
 //                 customerId = customer.id;
 //                 client.stripeCustomerId = customerId;
@@ -622,9 +190,39 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //                     code: 'CUSTOMER_CREATION_FAILED',
 //                 });
 //             }
+//         } else {
+//             // Update existing Stripe customer with latest details
+//             try {
+//                 const customerName = `${client.firstName} ${client.lastName}`.trim();
+//                 await stripe.customers.update(customerId, {
+//                     name: customerName || undefined,
+//                     email: client.email || undefined,
+//                     phone: client.phone || undefined,
+//                     description: `Client - ${customerName}`,
+//                     metadata: {
+//                         platform: 'taskallo',
+//                         userId: client._id.toString(),
+//                         userType: 'client',
+//                         firstName: client.firstName || '',
+//                         lastName: client.lastName || '',
+//                     },
+//                     ...(client.address && {
+//                         address: {
+//                             line1: client.address.street || client.address.line1 || '',
+//                             city: client.address.city || '',
+//                             state: client.address.province || client.address.state || '',
+//                             postal_code: client.address.postalCode || client.address.postal_code || '',
+//                             country: client.address.country || 'CA',
+//                         },
+//                     }),
+//                 });
+//                 console.log('✅ Stripe customer updated with latest details');
+//             } catch (updateErr) {
+//                 console.error('⚠️ Failed to update Stripe customer (non-blocking):', updateErr.message);
+//             }
 //         }
 
-//         // ⭐ STEP 2: Retrieve and validate payment method
+//         // STEP 2: Retrieve and validate payment method
 //         let paymentMethod;
 //         try {
 //             paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
@@ -636,7 +234,6 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //         } catch (pmRetrieveError) {
 //             console.error("❌ Failed to retrieve payment method:", pmRetrieveError);
 
-//             // Clear invalid payment method from client record
 //             client.defaultPaymentMethod = null;
 //             client.defaultPaymentMethodId = null;
 //             await client.save();
@@ -651,7 +248,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             });
 //         }
 
-//         // ⭐ STEP 3: Attach payment method to customer if not already attached
+//         // STEP 3: Attach payment method to customer if not already attached
 //         if (!paymentMethod.customer) {
 //             console.log("Payment method not attached to any customer. Attaching...");
 //             try {
@@ -662,7 +259,6 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             } catch (attachError) {
 //                 console.error("❌ Failed to attach payment method:", attachError);
 
-//                 // If attachment fails, the payment method might already be attached elsewhere
 //                 if (attachError.code === 'resource_already_exists') {
 //                     console.log("Payment method already attached to another customer");
 //                 }
@@ -673,14 +269,13 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //                 });
 //             }
 //         } else if (paymentMethod.customer !== customerId) {
-//             // Payment method attached to different customer - update our records
 //             console.log(`⚠️ Payment method attached to different customer: ${paymentMethod.customer}`);
 //             console.log(`   Updating client's stripeCustomerId from ${customerId} to ${paymentMethod.customer}`);
 //             customerId = paymentMethod.customer;
 //             client.stripeCustomerId = customerId;
 //         }
 
-//         // ⭐ STEP 4: Update client's payment records
+//         // STEP 4: Update client's payment records
 //         client.stripeCustomerId = customerId;
 //         client.defaultPaymentMethod = paymentMethodId;
 //         client.defaultPaymentMethodId = paymentMethodId;
@@ -788,20 +383,32 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             }
 //         }
 
-//         // ==================== CALCULATE DOUBLE-SIDED FEES ====================
+//         // ==================== ⭐ CALCULATE DOUBLE-SIDED FEES ====================
 
 //         const serviceAmountInCents = Math.round(service.hourlyRate * 100);
-//         const fees = calculateDoubleSidedFees(serviceAmountInCents);
+//         const fees = calculateBookingFees(serviceAmountInCents);
 
 //         console.log("💰 DOUBLE-SIDED FEE Booking Payment Breakdown:");
-//         console.log(`   Service Rate:         $${(serviceAmountInCents / 100).toFixed(2)}`);
-//         console.log(`   Client Fee (15%):     $${(fees.clientPlatformFee / 100).toFixed(2)}`);
-//         console.log(`   Tax (13% HST):        $${(fees.taxOnClientFee / 100).toFixed(2)}`);
-//         console.log(`   TOTAL CLIENT PAYS:    $${(fees.totalClientPays / 100).toFixed(2)}`);
-//         console.log(`   Tasker Fee (15%):    -$${(fees.taskerPlatformFee / 100).toFixed(2)}`);
-//         console.log(`   TASKER RECEIVES:      $${(fees.taskerPayout / 100).toFixed(2)}`);
-//         console.log(`   PLATFORM KEEPS:       $${(fees.applicationFee / 100).toFixed(2)}`);
+//         console.log(`   ┌─────────────────────────────────────────────────────┐`);
+//         console.log(`   │ SERVICE AMOUNT:              $${(serviceAmountInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ CLIENT SIDE (added to service):`);
+//         console.log(`   │   Platform Fee (10%):       +$${(fees.clientPlatformFee / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   Reservation Fee:          +$${(fees.reservationFee / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   HST (13%):                +$${(fees.clientTax / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   ─────────────────────────────────────────────────`);
+//         console.log(`   │   TOTAL CLIENT PAYS:         $${(fees.totalClientPays / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ TASKER SIDE (deducted from service):`);
+//         console.log(`   │   Platform Fee (12%):       -$${(fees.taskerPlatformFee / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   Tax (13%):                -$${(fees.taskerTax / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   ─────────────────────────────────────────────────`);
+//         console.log(`   │   TASKER RECEIVES:           $${(fees.taskerPayout / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ PLATFORM KEEPS:              $${(fees.applicationFee / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   └─────────────────────────────────────────────────────┘`);
 
+//         // Validation
 //         if (fees.totalClientPays < 50) {
 //             return res.status(400).json({
 //                 message: 'Minimum service amount is $0.50 CAD',
@@ -809,7 +416,17 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             });
 //         }
 
+//         if (fees.taskerPayout < 0) {
+//             return res.status(400).json({
+//                 message: 'Service amount too small to cover fees',
+//                 code: 'AMOUNT_TOO_SMALL'
+//             });
+//         }
+
 //         // ==================== CREATE PAYMENT INTENT ====================
+
+//         const clientFullName = `${client.firstName} ${client.lastName}`.trim();
+//         const taskerFullName = `${tasker.firstName} ${tasker.lastName}`.trim();
 
 //         console.log("Creating PaymentIntent...");
 //         console.log("   Customer ID:", customerId);
@@ -826,7 +443,12 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //                 payment_method: paymentMethodId,
 //                 capture_method: 'manual',
 
-//                 description: `Booking: ${service.title} with ${tasker.firstName} ${tasker.lastName}`,
+//                 description: `Booking: "${service.title}" | Client: ${clientFullName} | Tasker: ${taskerFullName}`,
+
+//                 receipt_email: client.email,
+
+//                 statement_descriptor: 'TASKALLO BOOKING',
+//                 statement_descriptor_suffix: service.title.substring(0, 10).toUpperCase(),
 
 //                 application_fee_amount: fees.applicationFee,
 
@@ -836,13 +458,45 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 
 //                 metadata: {
 //                     type: 'booking',
-//                     taskerId: taskerId.toString(),
+//                     bookingType: 'service',
+//                     serviceTitle: service.title.substring(0, 100),
+
+//                     // Client info
 //                     clientId: clientId.toString(),
-//                     serviceTitle: service.title,
-//                     serviceRate: (serviceAmountInCents / 100).toString(),
+//                     clientName: clientFullName,
+//                     clientEmail: client.email || '',
+//                     clientPhone: client.phone || '',
+
+//                     // Tasker info
+//                     taskerId: taskerId.toString(),
+//                     taskerName: taskerFullName,
+//                     taskerEmail: tasker.email || '',
+
+//                     // Amounts
+//                     serviceAmount: (serviceAmountInCents / 100).toString(),
+//                     clientPlatformFee: (fees.clientPlatformFee / 100).toString(),
+//                     reservationFee: (fees.reservationFee / 100).toString(),
+//                     clientTax: (fees.clientTax / 100).toString(),
 //                     totalClientPays: (fees.totalClientPays / 100).toString(),
+//                     taskerPlatformFee: (fees.taskerPlatformFee / 100).toString(),
+//                     taskerTax: (fees.taskerTax / 100).toString(),
 //                     taskerPayout: (fees.taskerPayout / 100).toString(),
-//                     feeStructure: 'double-sided-15-percent',
+//                     platformFee: (fees.applicationFee / 100).toString(),
+
+//                     feeStructure: 'client-10-5-13_tasker-12-13',
+//                     platform: 'taskallo',
+//                 },
+
+//                 shipping: {
+//                     name: clientFullName,
+//                     phone: client.phone || '',
+//                     address: {
+//                         line1: client.address?.street || client.address?.line1 || 'N/A',
+//                         city: client.address?.city || '',
+//                         state: client.address?.province || client.address?.state || '',
+//                         postal_code: client.address?.postalCode || client.address?.postal_code || '',
+//                         country: client.address?.country || 'CA',
+//                     },
 //                 },
 
 //                 automatic_payment_methods: {
@@ -919,28 +573,43 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             stripeStatus: 'authorized',
 //             paymentMethod: paymentMethodId,
 
+//             // ⭐ NEW: Complete payment breakdown
 //             payment: {
 //                 paymentIntentId: paymentIntent.id,
 //                 status: 'held',
 //                 currency: 'cad',
 //                 authorizedAt: new Date(),
-//                 feeStructure: 'double-sided-15-percent',
+//                 feeStructure: 'client-10-5-13_tasker-12-13',
 
+//                 // Service amount
+//                 serviceAmount: serviceAmountInCents / 100,
 //                 serviceAmountCents: serviceAmountInCents,
+
+//                 // Client-side fees
+//                 clientPlatformFee: fees.clientPlatformFee / 100,
 //                 clientPlatformFeeCents: fees.clientPlatformFee,
-//                 taxOnClientFeeCents: fees.taxOnClientFee,
+//                 reservationFee: fees.reservationFee / 100,
+//                 reservationFeeCents: fees.reservationFee,
+//                 clientTax: fees.clientTax / 100,
+//                 clientTaxCents: fees.clientTax,
+//                 totalClientPays: fees.totalClientPays / 100,
 //                 totalClientPaysCents: fees.totalClientPays,
+
+//                 // Tasker-side fees
+//                 taskerPlatformFee: fees.taskerPlatformFee / 100,
 //                 taskerPlatformFeeCents: fees.taskerPlatformFee,
+//                 taskerTax: fees.taskerTax / 100,
+//                 taskerTaxCents: fees.taskerTax,
+//                 taskerPayout: fees.taskerPayout / 100,
 //                 taskerPayoutCents: fees.taskerPayout,
+
+//                 // Platform revenue
+//                 applicationFee: fees.applicationFee / 100,
 //                 applicationFeeCents: fees.applicationFee,
 
-//                 serviceAmount: serviceAmountInCents / 100,
-//                 clientPlatformFee: fees.clientPlatformFee / 100,
-//                 taxOnClientFee: fees.taxOnClientFee / 100,
-//                 totalClientPays: fees.totalClientPays / 100,
-//                 taskerPlatformFee: fees.taskerPlatformFee / 100,
-//                 taskerPayout: fees.taskerPayout / 100,
-//                 applicationFee: fees.applicationFee / 100,
+//                 // Legacy fields for backwards compatibility
+//                 grossAmount: fees.totalClientPays / 100,
+//                 platformFee: fees.applicationFee / 100,
 //             },
 
 //             paymentDetails: {
@@ -948,7 +617,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //                 currency: 'cad',
 //                 paymentMethodType: 'card',
 //                 billingDetails: {
-//                     name: `${client.firstName} ${client.lastName}`,
+//                     name: clientFullName,
 //                     email: client.email,
 //                     phone: client.phone,
 //                 }
@@ -980,9 +649,6 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             .populate("client", "firstName lastName email phone profilePicture currentRole");
 
 //         // Send notifications (non-blocking)
-//         const clientName = `${client.firstName} ${client.lastName}`;
-//         const taskerName = `${tasker.firstName} ${tasker.lastName}`;
-
 //         const formattedDate = bookingDate.toLocaleDateString('en-US', {
 //             weekday: 'long',
 //             year: 'numeric',
@@ -996,7 +662,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             await createNotification(
 //                 taskerId,
 //                 "🎉 New Confirmed Booking!",
-//                 `${clientName} has booked "${service.title}" on ${formattedDate}. You'll receive $${(fees.taskerPayout / 100).toFixed(2)} upon completion.`,
+//                 `${clientFullName} has booked "${service.title}" on ${formattedDate}. You'll receive $${(fees.taskerPayout / 100).toFixed(2)} upon completion (after 12% fee + 13% tax).`,
 //                 "booking-confirmed",
 //                 booking._id
 //             );
@@ -1006,7 +672,7 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             await createNotification(
 //                 clientId,
 //                 "✅ Booking Confirmed!",
-//                 `Your booking for "${service.title}" with ${taskerName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)}`,
+//                 `Your booking for "${service.title}" with ${taskerFullName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)} (incl. 10% fee + $5 reservation + 13% HST).`,
 //                 "booking-confirmed",
 //                 booking._id
 //             );
@@ -1017,15 +683,30 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //             message: "Booking created and confirmed successfully",
 //             booking: populatedBooking,
 //             paymentBreakdown: {
+//                 // Service amount
 //                 serviceAmount: serviceAmountInCents / 100,
+
+//                 // Client side
 //                 clientPlatformFee: fees.clientPlatformFee / 100,
-//                 taxOnClientFee: fees.taxOnClientFee / 100,
+//                 clientPlatformFeePercent: fees.clientPlatformFeePercent,
+//                 reservationFee: fees.reservationFee / 100,
+//                 clientTax: fees.clientTax / 100,
+//                 clientTaxPercent: fees.clientTaxPercent,
 //                 totalClientPays: fees.totalClientPays / 100,
+
+//                 // Tasker side
 //                 taskerPlatformFee: fees.taskerPlatformFee / 100,
+//                 taskerPlatformFeePercent: fees.taskerPlatformFeePercent,
+//                 taskerTax: fees.taskerTax / 100,
+//                 taskerTaxPercent: fees.taskerTaxPercent,
 //                 taskerPayout: fees.taskerPayout / 100,
+
+//                 // Platform
 //                 platformTotal: fees.applicationFee / 100,
-//                 currency: 'cad',
+
+//                 currency: 'CAD',
 //                 status: 'held',
+//                 feeStructure: 'client-10-5-13_tasker-12-13',
 //             },
 //         });
 
@@ -1046,34 +727,84 @@ const calculateDoubleSidedFees = (bidAmountInCents) => {
 //         });
 //     }
 // };
-
-
-// Get All Bookings
 const createBooking = async (req, res) => {
     let paymentIntent = null;
+    const { taskerId, service, date, dayOfWeek, paymentMethodId: providedPaymentMethodId } = req.body;
+    const clientId = req.user?.id;
 
     try {
         console.log('=== CREATE BOOKING REQUEST ===');
         console.log('Raw Request Body:', JSON.stringify(req.body, null, 2));
 
-        const { taskerId, service, date, dayOfWeek, paymentMethodId: providedPaymentMethodId } = req.body;
-        const clientId = req.user?.id;
-
         // ==================== BASIC VALIDATIONS ====================
 
         if (!clientId) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: null,
+                req,
+                serviceTitle: service?.title,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized: User not authenticated",
+                    errorCode: "UNAUTHORIZED",
+                },
+            });
+
             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
         }
 
         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: req.user,
+                req,
+                serviceTitle: service?.title,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid tasker or client ID",
+                    errorCode: "INVALID_IDS",
+                    providedTaskerId: taskerId,
+                    providedClientId: clientId,
+                },
+            });
+
             return res.status(400).json({ message: "Invalid tasker or client ID" });
         }
 
         if (!service || !service.title || !service.description || !service.hourlyRate || !service.estimatedDuration) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: req.user,
+                req,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Service details are required",
+                    errorCode: "MISSING_SERVICE_DETAILS",
+                    providedService: service,
+                },
+            });
+
             return res.status(400).json({ message: "Service details are required" });
         }
 
         if (!date) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: req.user,
+                req,
+                serviceTitle: service.title,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Booking date and time are required",
+                    errorCode: "MISSING_DATE",
+                },
+            });
+
             return res.status(400).json({ message: "Booking date and time are required" });
         }
 
@@ -1081,12 +812,40 @@ const createBooking = async (req, res) => {
 
         const tasker = await User.findById(taskerId);
         if (!tasker || tasker.currentRole !== "tasker") {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: req.user,
+                req,
+                serviceTitle: service.title,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Tasker not found or invalid role",
+                    errorCode: "INVALID_TASKER",
+                    taskerExists: !!tasker,
+                    taskerRole: tasker?.currentRole,
+                },
+            });
+
             return res.status(400).json({ message: "Tasker not found or invalid role" });
         }
 
-        // ✅ UPDATED: Added 'address' to the select fields
         const client = await User.findById(clientId).select('+address');
         if (!client || client.currentRole !== "client") {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: req.user,
+                req,
+                serviceTitle: service.title,
+                taskerId,
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Client not found or invalid role",
+                    errorCode: "INVALID_CLIENT",
+                },
+            });
+
             return res.status(400).json({ message: "Client not found or invalid role" });
         }
 
@@ -1097,13 +856,28 @@ const createBooking = async (req, res) => {
             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
             console.log('✅ Tasker Stripe Connect validated:', taskerStripeAccountId);
         } catch (connectError) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: connectError.message,
+                    errorCode: "TASKER_PAYMENT_NOT_SETUP",
+                    taskerEmail: tasker.email,
+                },
+            });
+
             return res.status(400).json({
                 message: connectError.message,
                 code: 'TASKER_PAYMENT_NOT_SETUP',
             });
         }
 
-        // ==================== ⭐ HANDLE PAYMENT METHOD ====================
+        // ==================== HANDLE PAYMENT METHOD ====================
 
         let paymentMethodId = providedPaymentMethodId;
         let customerId = client.stripeCustomerId;
@@ -1111,26 +885,37 @@ const createBooking = async (req, res) => {
         console.log("=== PAYMENT METHOD DEBUG ===");
         console.log("Provided Payment Method ID:", providedPaymentMethodId);
         console.log("Client's stored stripeCustomerId:", customerId);
-        console.log("Client's stored defaultPaymentMethod:", client.defaultPaymentMethod);
-        console.log("Client's stored defaultPaymentMethodId:", client.defaultPaymentMethodId);
 
-        // If no payment method provided, try to use the saved one
         if (!paymentMethodId) {
             paymentMethodId = client.defaultPaymentMethod || client.defaultPaymentMethodId;
         }
 
         if (!paymentMethodId) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "No payment method provided",
+                    errorCode: "NO_PAYMENT_METHOD",
+                    clientEmail: client.email,
+                },
+            });
+
             return res.status(400).json({
                 message: 'No payment method provided. Please add a card.',
                 code: 'NO_PAYMENT_METHOD',
             });
         }
 
-        // ⭐ STEP 1: Ensure we have a Stripe Customer
+        // STEP 1: Ensure we have a Stripe Customer
         if (!customerId) {
             console.log("Creating new Stripe Customer for client...");
             try {
-                // ✅ UPDATED: Added more details when creating customer
                 const customerName = `${client.firstName} ${client.lastName}`.trim();
                 const customer = await stripe.customers.create({
                     email: client.email,
@@ -1141,19 +926,7 @@ const createBooking = async (req, res) => {
                         userId: client._id.toString(),
                         platform: 'taskallo',
                         userType: 'client',
-                        firstName: client.firstName || '',
-                        lastName: client.lastName || '',
                     },
-                    // ✅ NEW: Add address if available
-                    ...(client.address && {
-                        address: {
-                            line1: client.address.street || client.address.line1 || '',
-                            city: client.address.city || '',
-                            state: client.address.province || client.address.state || '',
-                            postal_code: client.address.postalCode || client.address.postal_code || '',
-                            country: client.address.country || 'CA',
-                        },
-                    }),
                 });
                 customerId = customer.id;
                 client.stripeCustomerId = customerId;
@@ -1161,85 +934,84 @@ const createBooking = async (req, res) => {
                 console.log("✅ Created new Stripe Customer:", customerId);
             } catch (customerError) {
                 console.error("❌ Failed to create Stripe Customer:", customerError);
+
+                await logBooking({
+                    action: "BOOKING_CREATED",
+                    user: { ...req.user, ...client.toObject() },
+                    req,
+                    serviceTitle: service.title,
+                    taskerId: tasker._id.toString(),
+                    taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                    status: "failure",
+                    metadata: {
+                        errorMessage: "Failed to create Stripe customer",
+                        errorCode: "CUSTOMER_CREATION_FAILED",
+                        stripeError: customerError.message,
+                    },
+                });
+
                 return res.status(400).json({
                     message: 'Failed to set up payment. Please try again.',
                     code: 'CUSTOMER_CREATION_FAILED',
                 });
             }
-        } else {
-            // ✅ NEW: Update existing Stripe customer with latest details
-            try {
-                const customerName = `${client.firstName} ${client.lastName}`.trim();
-                await stripe.customers.update(customerId, {
-                    name: customerName || undefined,
-                    email: client.email || undefined,
-                    phone: client.phone || undefined,
-                    description: `Client - ${customerName}`,
-                    metadata: {
-                        platform: 'taskallo',
-                        userId: client._id.toString(),
-                        userType: 'client',
-                        firstName: client.firstName || '',
-                        lastName: client.lastName || '',
-                    },
-                    ...(client.address && {
-                        address: {
-                            line1: client.address.street || client.address.line1 || '',
-                            city: client.address.city || '',
-                            state: client.address.province || client.address.state || '',
-                            postal_code: client.address.postalCode || client.address.postal_code || '',
-                            country: client.address.country || 'CA',
-                        },
-                    }),
-                });
-                console.log('✅ Stripe customer updated with latest details');
-            } catch (updateErr) {
-                console.error('⚠️ Failed to update Stripe customer (non-blocking):', updateErr.message);
-                // Don't fail the booking, just log the error
-            }
         }
 
-        // ⭐ STEP 2: Retrieve and validate payment method
+        // STEP 2: Retrieve and validate payment method
         let paymentMethod;
         try {
             paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
             console.log("✅ Payment method retrieved:", paymentMethodId);
-            console.log("   Type:", paymentMethod.type);
-            console.log("   Card brand:", paymentMethod.card?.brand);
-            console.log("   Last 4:", paymentMethod.card?.last4);
-            console.log("   Attached to customer:", paymentMethod.customer);
         } catch (pmRetrieveError) {
             console.error("❌ Failed to retrieve payment method:", pmRetrieveError);
 
-            // Clear invalid payment method from client record
             client.defaultPaymentMethod = null;
             client.defaultPaymentMethodId = null;
             await client.save();
 
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment method not found or invalid",
+                    errorCode: "PAYMENT_METHOD_NOT_FOUND",
+                    paymentMethodId,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Payment method not found or invalid. Please add a new card.',
                 code: 'PAYMENT_METHOD_NOT_FOUND',
-                debug: process.env.NODE_ENV === 'development' ? {
-                    providedId: paymentMethodId,
-                    error: pmRetrieveError.message
-                } : undefined
             });
         }
 
-        // ⭐ STEP 3: Attach payment method to customer if not already attached
+        // STEP 3: Attach payment method to customer if not already attached
         if (!paymentMethod.customer) {
-            console.log("Payment method not attached to any customer. Attaching...");
             try {
-                await stripe.paymentMethods.attach(paymentMethodId, {
-                    customer: customerId,
-                });
+                await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
                 console.log("✅ Payment method attached to customer:", customerId);
             } catch (attachError) {
                 console.error("❌ Failed to attach payment method:", attachError);
 
-                if (attachError.code === 'resource_already_exists') {
-                    console.log("Payment method already attached to another customer");
-                }
+                await logBooking({
+                    action: "BOOKING_CREATED",
+                    user: { ...req.user, ...client.toObject() },
+                    req,
+                    serviceTitle: service.title,
+                    taskerId: tasker._id.toString(),
+                    taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                    status: "failure",
+                    metadata: {
+                        errorMessage: "Failed to attach payment method",
+                        errorCode: "PAYMENT_METHOD_ATTACH_FAILED",
+                        stripeError: attachError.message,
+                    },
+                });
 
                 return res.status(400).json({
                     message: 'Failed to set up payment method. Please try a different card.',
@@ -1247,50 +1019,79 @@ const createBooking = async (req, res) => {
                 });
             }
         } else if (paymentMethod.customer !== customerId) {
-            console.log(`⚠️ Payment method attached to different customer: ${paymentMethod.customer}`);
-            console.log(`   Updating client's stripeCustomerId from ${customerId} to ${paymentMethod.customer}`);
             customerId = paymentMethod.customer;
             client.stripeCustomerId = customerId;
         }
 
-        // ⭐ STEP 4: Update client's payment records
+        // Update client's payment records
         client.stripeCustomerId = customerId;
         client.defaultPaymentMethod = paymentMethodId;
         client.defaultPaymentMethodId = paymentMethodId;
         await client.save();
-        console.log("✅ Client payment info updated");
 
         // ==================== PARSE AND VALIDATE DATE ====================
 
         const bookingDate = new Date(date);
-        console.log('Parsed bookingDate:', bookingDate, 'ISO:', bookingDate.toISOString());
 
         if (isNaN(bookingDate.getTime())) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid date format",
+                    errorCode: "INVALID_DATE",
+                    providedDate: date,
+                },
+            });
+
             return res.status(400).json({ message: "Invalid date format" });
         }
 
         if (bookingDate < new Date()) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Cannot book a time in the past",
+                    errorCode: "PAST_DATE",
+                    providedDate: date,
+                    currentTime: new Date().toISOString(),
+                },
+            });
+
             return res.status(400).json({ message: "Cannot book a time in the past" });
         }
 
         // ==================== VALIDATE AVAILABILITY ====================
 
-        let dayName;
-
-        if (dayOfWeek) {
-            dayName = dayOfWeek;
-        } else {
-            const dateParts = date.split('T')[0].split('-');
-            const year = parseInt(dateParts[0]);
-            const month = parseInt(dateParts[1]) - 1;
-            const day = parseInt(dateParts[2]);
-            const localDate = new Date(year, month, day);
-            dayName = getDayNameFromDate(localDate);
-        }
-
-        console.log('Final dayName for availability check:', dayName);
+        let dayName = dayOfWeek || getDayNameFromDate(new Date(date.split('T')[0]));
 
         if (!tasker.availability || tasker.availability.length === 0) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Tasker has not set their availability",
+                    errorCode: "NO_AVAILABILITY",
+                    requestedDay: dayName,
+                },
+            });
+
             return res.status(400).json({
                 message: "Tasker has not set their availability",
             });
@@ -1301,6 +1102,22 @@ const createBooking = async (req, res) => {
         );
 
         if (!availability) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: `Tasker is not available on ${dayName}`,
+                    errorCode: "DAY_NOT_AVAILABLE",
+                    requestedDay: dayName,
+                    taskerAvailability: tasker.availability.map(a => a.day),
+                },
+            });
+
             return res.status(400).json({
                 message: `Tasker is not available on ${dayName}`,
             });
@@ -1332,6 +1149,23 @@ const createBooking = async (req, res) => {
         const endTimeInMinutes = endHour * 60 + endMinute;
 
         if (bookingTimeInMinutes < startTimeInMinutes || bookingTimeInMinutes >= endTimeInMinutes) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: `Booking time must be between ${availability.from} and ${availability.to}`,
+                    errorCode: "TIME_OUT_OF_RANGE",
+                    requestedTime: `${hours}:${minutes}`,
+                    availableFrom: availability.from,
+                    availableTo: availability.to,
+                },
+            });
+
             return res.status(400).json({
                 message: `Booking time must be between ${availability.from} and ${availability.to} on ${dayName}`
             });
@@ -1355,27 +1189,55 @@ const createBooking = async (req, res) => {
             const existingHours = existingTime.getHours();
 
             if (Math.abs(hours - existingHours) < 1) {
+                await logBooking({
+                    action: "BOOKING_CREATED",
+                    user: { ...req.user, ...client.toObject() },
+                    req,
+                    serviceTitle: service.title,
+                    taskerId: tasker._id.toString(),
+                    taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                    status: "failure",
+                    metadata: {
+                        errorMessage: "Time slot already booked",
+                        errorCode: "SLOT_CONFLICT",
+                        requestedTime: `${hours}:${minutes}`,
+                        conflictingBookingId: existingBooking._id.toString(),
+                    },
+                });
+
                 return res.status(400).json({
                     message: "This time slot is already booked. Please choose another time."
                 });
             }
         }
 
-        // ==================== CALCULATE DOUBLE-SIDED FEES ====================
+        // ==================== CALCULATE FEES ====================
 
         const serviceAmountInCents = Math.round(service.hourlyRate * 100);
-        const fees = calculateDoubleSidedFees(serviceAmountInCents);
+        const fees = calculateBookingFees(serviceAmountInCents);
 
-        console.log("💰 DOUBLE-SIDED FEE Booking Payment Breakdown:");
-        console.log(`   Service Rate:         $${(serviceAmountInCents / 100).toFixed(2)}`);
-        console.log(`   Client Fee (15%):     $${(fees.clientPlatformFee / 100).toFixed(2)}`);
-        console.log(`   Tax (13% HST):        $${(fees.taxOnClientFee / 100).toFixed(2)}`);
-        console.log(`   TOTAL CLIENT PAYS:    $${(fees.totalClientPays / 100).toFixed(2)}`);
-        console.log(`   Tasker Fee (15%):    -$${(fees.taskerPlatformFee / 100).toFixed(2)}`);
-        console.log(`   TASKER RECEIVES:      $${(fees.taskerPayout / 100).toFixed(2)}`);
-        console.log(`   PLATFORM KEEPS:       $${(fees.applicationFee / 100).toFixed(2)}`);
+        console.log("💰 Payment Breakdown:");
+        console.log(`   Total Client Pays: $${(fees.totalClientPays / 100).toFixed(2)}`);
+        console.log(`   Tasker Receives: $${(fees.taskerPayout / 100).toFixed(2)}`);
+        console.log(`   Platform Keeps: $${(fees.applicationFee / 100).toFixed(2)}`);
 
         if (fees.totalClientPays < 50) {
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                amount: fees.totalClientPays / 100,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Minimum service amount is $0.50 CAD",
+                    errorCode: "AMOUNT_TOO_SMALL",
+                    serviceAmount: serviceAmountInCents / 100,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Minimum service amount is $0.50 CAD',
                 code: 'AMOUNT_TOO_SMALL'
@@ -1384,16 +1246,8 @@ const createBooking = async (req, res) => {
 
         // ==================== CREATE PAYMENT INTENT ====================
 
-        // ✅ NEW: Prepare names for description and metadata
         const clientFullName = `${client.firstName} ${client.lastName}`.trim();
         const taskerFullName = `${tasker.firstName} ${tasker.lastName}`.trim();
-
-        console.log("Creating PaymentIntent...");
-        console.log("   Customer ID:", customerId);
-        console.log("   Payment Method ID:", paymentMethodId);
-        console.log("   Amount:", fees.totalClientPays);
-        console.log("   Application Fee:", fees.applicationFee);
-        console.log("   Destination:", taskerStripeAccountId);
 
         try {
             paymentIntent = await stripe.paymentIntents.create({
@@ -1402,63 +1256,19 @@ const createBooking = async (req, res) => {
                 customer: customerId,
                 payment_method: paymentMethodId,
                 capture_method: 'manual',
-
-                // ✅ UPDATED: Enhanced description
                 description: `Booking: "${service.title}" | Client: ${clientFullName} | Tasker: ${taskerFullName}`,
-
-                // ✅ NEW: Send receipt email to client
                 receipt_email: client.email,
-
-                // ✅ NEW: Statement descriptor (appears on bank/card statement - max 22 chars)
                 statement_descriptor: 'TASKALLO BOOKING',
-                statement_descriptor_suffix: service.title.substring(0, 10).toUpperCase(),
-
                 application_fee_amount: fees.applicationFee,
-
                 transfer_data: {
                     destination: taskerStripeAccountId,
                 },
-
-                // ✅ UPDATED: Enhanced metadata with all details
                 metadata: {
                     type: 'booking',
-                    bookingType: 'service',
-                    serviceTitle: service.title.substring(0, 100),
-
-                    // Client info
                     clientId: clientId.toString(),
-                    clientName: clientFullName,
-                    clientEmail: client.email || '',
-                    clientPhone: client.phone || '',
-
-                    // Tasker info
                     taskerId: taskerId.toString(),
-                    taskerName: taskerFullName,
-                    taskerEmail: tasker.email || '',
-
-                    // Amounts
-                    serviceRate: (serviceAmountInCents / 100).toString(),
-                    totalClientPays: (fees.totalClientPays / 100).toString(),
-                    taskerPayout: (fees.taskerPayout / 100).toString(),
-                    platformFee: (fees.applicationFee / 100).toString(),
-
-                    feeStructure: 'double-sided-15-percent',
-                    platform: 'taskallo',
+                    serviceTitle: service.title.substring(0, 100),
                 },
-
-                // ✅ NEW: Shipping details (optional - helps with records)
-                shipping: {
-                    name: clientFullName,
-                    phone: client.phone || '',
-                    address: {
-                        line1: client.address?.street || client.address?.line1 || 'N/A',
-                        city: client.address?.city || '',
-                        state: client.address?.province || client.address?.state || '',
-                        postal_code: client.address?.postalCode || client.address?.postal_code || '',
-                        country: client.address?.country || 'CA',
-                    },
-                },
-
                 automatic_payment_methods: {
                     enabled: true,
                     allow_redirects: 'never'
@@ -1467,26 +1277,70 @@ const createBooking = async (req, res) => {
             });
 
             console.log("✅ PaymentIntent created:", paymentIntent.id);
-            console.log("   Status:", paymentIntent.status);
+
+            // ✅ Log payment authorization
+            await logPayment({
+                action: "PAYMENT_AUTHORIZED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: null,
+                taskTitle: service.title,
+                amount: fees.totalClientPays,
+                paymentIntentId: paymentIntent.id,
+                status: "success",
+                metadata: {
+                    bookingType: "service",
+                    taskerId: tasker._id.toString(),
+                    taskerName: taskerFullName,
+                    taskerPayout: fees.taskerPayout / 100,
+                    applicationFee: fees.applicationFee / 100,
+                    stripeAccountId: taskerStripeAccountId,
+                },
+            });
 
         } catch (stripeError) {
             console.error("❌ Stripe PaymentIntent creation failed:", stripeError);
-            console.error("   Error code:", stripeError.code);
-            console.error("   Error type:", stripeError.type);
-            console.error("   Error message:", stripeError.message);
+
+            // ✅ Log payment failure
+            await logPayment({
+                action: "PAYMENT_FAILED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskTitle: service.title,
+                amount: fees.totalClientPays,
+                status: "failure",
+                metadata: {
+                    errorMessage: stripeError.message,
+                    errorCode: stripeError.code,
+                    errorType: stripeError.type,
+                    declineCode: stripeError.decline_code,
+                    taskerId: tasker._id.toString(),
+                },
+            });
+
+            // Also log booking failure
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: taskerFullName,
+                amount: fees.totalClientPays / 100,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization failed",
+                    errorCode: stripeError.code || "PAYMENT_FAILED",
+                    stripeError: stripeError.message,
+                    declineCode: stripeError.decline_code,
+                },
+            });
 
             if (stripeError.type === 'StripeCardError') {
                 return res.status(400).json({
                     message: stripeError.message,
                     code: 'CARD_ERROR',
                     decline_code: stripeError.decline_code
-                });
-            }
-
-            if (stripeError.code === 'payment_method_not_attached') {
-                return res.status(400).json({
-                    message: 'Payment method is not properly set up. Please re-add your card.',
-                    code: 'PAYMENT_METHOD_NOT_ATTACHED'
                 });
             }
 
@@ -1506,10 +1360,26 @@ const createBooking = async (req, res) => {
                 console.error("Could not cancel PaymentIntent:", e);
             }
 
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: taskerFullName,
+                amount: fees.totalClientPays / 100,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization failed - unexpected status",
+                    errorCode: "AUTHORIZATION_FAILED",
+                    paymentStatus: paymentIntent.status,
+                    lastPaymentError: paymentIntent.last_payment_error?.message,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Payment authorization failed',
                 code: 'AUTHORIZATION_FAILED',
-                error: paymentIntent.last_payment_error?.message || 'Unknown error'
             });
         }
 
@@ -1528,44 +1398,18 @@ const createBooking = async (req, res) => {
             totalAmount: service.hourlyRate,
             status: "confirmed",
             confirmedAt: new Date(),
-
             paymentIntentId: paymentIntent.id,
             stripeStatus: 'authorized',
             paymentMethod: paymentMethodId,
-
             payment: {
                 paymentIntentId: paymentIntent.id,
                 status: 'held',
                 currency: 'cad',
                 authorizedAt: new Date(),
-                feeStructure: 'double-sided-15-percent',
-
-                serviceAmountCents: serviceAmountInCents,
-                clientPlatformFeeCents: fees.clientPlatformFee,
-                taxOnClientFeeCents: fees.taxOnClientFee,
-                totalClientPaysCents: fees.totalClientPays,
-                taskerPlatformFeeCents: fees.taskerPlatformFee,
-                taskerPayoutCents: fees.taskerPayout,
-                applicationFeeCents: fees.applicationFee,
-
                 serviceAmount: serviceAmountInCents / 100,
-                clientPlatformFee: fees.clientPlatformFee / 100,
-                taxOnClientFee: fees.taxOnClientFee / 100,
                 totalClientPays: fees.totalClientPays / 100,
-                taskerPlatformFee: fees.taskerPlatformFee / 100,
                 taskerPayout: fees.taskerPayout / 100,
                 applicationFee: fees.applicationFee / 100,
-            },
-
-            paymentDetails: {
-                amountCaptured: 0,
-                currency: 'cad',
-                paymentMethodType: 'card',
-                billingDetails: {
-                    name: clientFullName, // ✅ UPDATED: Use the variable
-                    email: client.email,
-                    phone: client.phone,
-                }
             },
         });
 
@@ -1581,11 +1425,65 @@ const createBooking = async (req, res) => {
                 console.error("❌ Failed to cancel PaymentIntent:", cancelError);
             }
 
+            await logBooking({
+                action: "BOOKING_CREATED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                serviceTitle: service.title,
+                taskerId: tasker._id.toString(),
+                taskerName: taskerFullName,
+                amount: fees.totalClientPays / 100,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Database error - booking not saved",
+                    errorCode: "DATABASE_ERROR",
+                    dbError: dbError.message,
+                    paymentIntentCancelled: true,
+                },
+            });
+
             return res.status(500).json({
                 message: 'Failed to save booking. Payment was not charged.',
                 code: 'DATABASE_ERROR'
             });
         }
+
+        // ✅ Log successful booking creation
+        await logBooking({
+            action: "BOOKING_CREATED",
+            user: { ...req.user, ...client.toObject() },
+            req,
+            bookingId: booking._id.toString(),
+            serviceTitle: service.title,
+            taskerId: tasker._id.toString(),
+            taskerName: taskerFullName,
+            amount: fees.totalClientPays / 100,
+            status: "success",
+            metadata: {
+                // Booking details
+                bookingDate: bookingDate.toISOString(),
+                dayOfWeek: dayName,
+                serviceDescription: service.description?.substring(0, 100),
+                hourlyRate: service.hourlyRate,
+                estimatedDuration: service.estimatedDuration,
+
+                // Payment details
+                paymentIntentId: paymentIntent.id,
+                serviceAmount: serviceAmountInCents / 100,
+                clientPlatformFee: fees.clientPlatformFee / 100,
+                reservationFee: fees.reservationFee / 100,
+                clientTax: fees.clientTax / 100,
+                totalClientPays: fees.totalClientPays / 100,
+                taskerPlatformFee: fees.taskerPlatformFee / 100,
+                taskerPayout: fees.taskerPayout / 100,
+                applicationFee: fees.applicationFee / 100,
+
+                // User details
+                clientEmail: client.email,
+                taskerEmail: tasker.email,
+                taskerStripeAccountId: taskerStripeAccountId,
+            },
+        });
 
         // ==================== POPULATE AND RESPOND ====================
 
@@ -1617,7 +1515,7 @@ const createBooking = async (req, res) => {
             await createNotification(
                 clientId,
                 "✅ Booking Confirmed!",
-                `Your booking for "${service.title}" with ${taskerFullName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)}`,
+                `Your booking for "${service.title}" with ${taskerFullName} on ${formattedDate} is confirmed. Total: $${(fees.totalClientPays / 100).toFixed(2)}.`,
                 "booking-confirmed",
                 booking._id
             );
@@ -1629,13 +1527,10 @@ const createBooking = async (req, res) => {
             booking: populatedBooking,
             paymentBreakdown: {
                 serviceAmount: serviceAmountInCents / 100,
-                clientPlatformFee: fees.clientPlatformFee / 100,
-                taxOnClientFee: fees.taxOnClientFee / 100,
                 totalClientPays: fees.totalClientPays / 100,
-                taskerPlatformFee: fees.taskerPlatformFee / 100,
                 taskerPayout: fees.taskerPayout / 100,
                 platformTotal: fees.applicationFee / 100,
-                currency: 'cad',
+                currency: 'CAD',
                 status: 'held',
             },
         });
@@ -1651,6 +1546,22 @@ const createBooking = async (req, res) => {
             }
         }
 
+        // ✅ Log unexpected error
+        await logBooking({
+            action: "BOOKING_CREATED",
+            user: req.user,
+            req,
+            serviceTitle: service?.title,
+            taskerId,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+                paymentIntentCancelled: !!paymentIntent?.id,
+            },
+        });
+
         res.status(500).json({
             message: "Server error while creating booking",
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -1658,6 +1569,10 @@ const createBooking = async (req, res) => {
     }
 };
 
+
+
+
+export { calculateBookingFees };
 
 
 
@@ -1689,167 +1604,7 @@ const getBookingsByUserId = async (req, res) => {
     }
 };
 
-// Update Booking
-// const updateBooking = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { status, service } = req.body;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid booking ID" });
-//         }
-//         const booking = await BookingTasker.findById(id);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
-//         if (status) booking.status = status;
-//         if (service) booking.service = service;
-//         await booking.save();
-//         const populatedBooking = await Booking.findById(id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
-//         res.status(200).json({ message: "Booking updated successfully", booking: populatedBooking });
-//     } catch (error) {
-//         console.error("Error updating booking:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
 
-
-// export const addReview = async (req, res) => {
-//     try {
-//         const { bookingId, rating, message } = req.body;
-//         const clientId = req.user._id;
-
-//         console.log('Client ID:', clientId, 'Booking ID:', bookingId); // Debug: Log IDs
-//         // Validate input
-//         if (!bookingId || !rating || !message) {
-//             return res.status(400).json({ message: "Booking ID, rating, and message are required" });
-//         }
-
-//         if (rating < 0 || rating > 5) {
-//             return res.status(400).json({ message: "Rating must be between 0 and 5" });
-//         }
-
-//         // Find the booking
-
-//         const booking = await BookingTasker.findById(bookingId);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
-
-//         console.log(booking.client.toString())
-
-//         console.log('Booking Client ID:', booking.client.toString()); // Debug: Log booking client ID
-
-//         // Check if the booking is completed and the client is authorized
-//         if (booking.status !== "completed") {
-//             return res.status(400).json({ message: "Reviews can only be added for completed bookings" });
-//         }
-//         if (booking.client.toString() !== clientId.toString()
-//         ) {
-//             return res.status(403).json({ message: "You are not authorized to review this booking" });
-//         }
-
-//         // Check if a review already exists
-//         if (booking.review) {
-//             return res.status(400).json({ message: "A review has already been submitted for this booking" });
-//         }
-
-//         // Find the tasker
-//         const tasker = await User.findById(booking.tasker);
-//         if (!tasker || tasker.role !== "tasker") {
-//             return res.status(404).json({ message: "Tasker not found" });
-//         }
-
-//         // Add the review to the booking
-//         booking.review = {
-//             reviewer: clientId,
-//             rating,
-//             message,
-//             createdAt: new Date(),
-//         };
-
-//         // Add the review to the tasker's reviews array
-//         tasker.reviews.push({
-//             reviewer: clientId,
-//             rating,
-//             message,
-//             bookingId, // Link review to booking
-//             createdAt: new Date(),
-//         });
-
-//         // Update tasker's rating and review count
-//         const totalReviews = tasker.reviews.length;
-//         const averageRating =
-//             tasker.reviews.reduce((sum, rev) => sum + rev.rating, 0) / totalReviews;
-
-//         tasker.rating = parseFloat(averageRating.toFixed(2));
-//         tasker.reviewCount = totalReviews;
-
-//         await booking.save();
-//         await tasker.save();
-
-//         res.status(201).json({ message: "Review added successfully", review: booking.review });
-//     } catch (error) {
-//         console.error("Error adding review:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
-
-//  const updateBooking = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const { status, service } = req.body;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid booking ID" });
-//         }
-//         const booking = await BookingTasker.findById(id);
-//         if (!booking) {
-//             return res.status(404).json({ message: "Booking not found" });
-//         }
-
-//         const previousStatus = booking.status; // Track for notification
-//         const previousService = booking.service; // Track for notification if changed
-
-//         if (status) booking.status = status;
-//         if (service) booking.service = service;
-//         await booking.save();
-
-//         const populatedBooking = await BookingTasker.findById(id)
-//             .populate("tasker", "firstName lastName email phone role")
-//             .populate("client", "firstName lastName email phone role");
-
-//         // Create notification for the other party (non-blocking)
-//         try {
-//             const updaterRole = req.user.role; // Assume req.user has role from middleware
-//             const otherPartyId = updaterRole === "client" ? booking.tasker : booking.client;
-//             const otherPartyName = updaterRole === "client" ? "Tasker" : "Client";
-//             let title = "Booking Updated";
-//             let message = `${otherPartyName} updated the booking "${booking.service?.title || 'Booking'}"`;
-//             if (status && status !== previousStatus) {
-//                 message += ` - Status changed to "${status}"`;
-//             }
-//             if (service && service.title !== previousService?.title) {
-//                 message += ` - Service changed to "${service.title}"`;
-//             }
-//             await createNotification(
-//                 otherPartyId,
-//                 title,
-//                 message,
-//                 "booking-updated",
-//                 booking._id // Link to booking
-//             );
-//             console.log("Notification created for booking update"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Booking updated successfully", booking: populatedBooking });
-//     } catch (error) {
-//         console.error("Error updating booking:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
 
 const updateBooking = async (req, res) => {
     try {
@@ -2839,33 +2594,234 @@ const deleteBooking = async (req, res) => {
 //     }
 // };
 
+// const createRequestQuote = async (req, res) => {
+//     try {
+//         const { taskerId, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
+//         const clientId = req.user?.id;
+//         console.log(clientId);
+
+//         if (!clientId) {
+//             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
+//         }
+
+//         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
+//             return res.status(400).json({ message: "Invalid tasker or client ID" });
+//         }
+
+//         if (!taskTitle || !taskDescription || !location) {
+//             return res.status(400).json({ message: "Task title, description, and location are required" });
+//         }
+
+//         const tasker = await mongoose.models.User.findById(taskerId);
+//         if (!tasker || tasker.currentRole !== "tasker") {
+//             return res.status(400).json({ message: "Tasker not found or invalid role" });
+//         }
+
+//         const client = await mongoose.models.User.findById(clientId);
+//         if (!client || client.currentRole !== "client") {
+//             return res.status(400).json({ message: "Client not found or invalid role" });
+//         }
+
+//         const requestQuote = new RequestQuote({
+//             tasker: taskerId,
+//             client: clientId,
+//             taskTitle,
+//             taskDescription,
+//             location,
+//             budget: budget || null,
+//             preferredDateTime: preferredDateTime ? new Date(preferredDateTime) : null,
+//             urgency: urgency || "Flexible - Whenever works",
+//             status: "pending",
+//         });
+
+//         await requestQuote.save();
+
+//         const populatedRequestQuote = await RequestQuote.findById(requestQuote._id)
+//             .populate("tasker", "firstName lastName email phone currentRole")
+//             .populate("client", "firstName lastName email phone currentRole");
+
+//         // FIX: Get user names safely
+//         const clientName = client
+//             ? `${client.firstName} ${client.lastName}`
+//             : "A client";
+
+//         const taskerName = tasker
+//             ? `${tasker.firstName} ${tasker.lastName}`
+//             : "The tasker";
+
+//         // Format preferred date for notifications
+//         const formattedDate = preferredDateTime
+//             ? new Date(preferredDateTime).toLocaleDateString('en-US', {
+//                 weekday: 'long',
+//                 year: 'numeric',
+//                 month: 'long',
+//                 day: 'numeric',
+//                 hour: '2-digit',
+//                 minute: '2-digit'
+//             })
+//             : "Flexible";
+
+//         // Format budget for notifications
+//         const formattedBudget = budget ? `$${budget}` : "Negotiable";
+
+//         // Create notification for the tasker (new quote request)
+//         try {
+//             // Debug: Log notification details
+//             console.log("Creating quote request notification for tasker:", {
+//                 taskerId,
+//                 clientName,
+//                 taskTitle,
+//                 location,
+//                 budget: formattedBudget,
+//                 preferredDateTime: formattedDate
+//             });
+
+//             await createNotification(
+//                 taskerId,
+//                 "📝 New Quote Request!",
+//                 `${clientName} is requesting a quote for "${taskTitle}" in ${location}. Budget: ${formattedBudget}, Preferred Date: ${formattedDate}, Urgency: ${urgency || 'Flexible'}. Review and respond!`,
+//                 "quote-request",
+//                 requestQuote._id
+//             );
+//             console.log("✅ Notification created for tasker - new quote request");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker notification (non-blocking):", notifErr);
+//         }
+
+//         // Create confirmation notification for the client
+//         try {
+//             await createNotification(
+//                 clientId,
+//                 "📤 Quote Request Sent",
+//                 `Your quote request for "${taskTitle}" has been sent to ${taskerName}. You'll be notified when they respond. Budget: ${formattedBudget}, Location: ${location}.`,
+//                 "quote-request-sent",
+//                 requestQuote._id
+//             );
+//             console.log("✅ Confirmation notification sent to client");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+//         }
+
+//         res.status(201).json({ message: "Quote request created successfully", requestQuote: populatedRequestQuote });
+//     } catch (error) {
+//         console.error("Error creating quote request:", error);
+//         res.status(500).json({ message: "Server error" });
+//     }
+// };
+
 const createRequestQuote = async (req, res) => {
+    const { taskerId, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
+    const clientId = req.user?.id;
+
     try {
-        const { taskerId, taskTitle, taskDescription, location, budget, preferredDateTime, urgency } = req.body;
-        const clientId = req.user?.id;
-        console.log(clientId);
+        console.log("=== CREATE QUOTE REQUEST ===");
+        console.log("Client ID:", clientId);
+        console.log("Request Body:", JSON.stringify(req.body, null, 2));
+
+        // ==================== VALIDATIONS ====================
 
         if (!clientId) {
+            await logQuoteRequest({
+                action: "QUOTE_REQUESTED",
+                user: null,
+                req,
+                taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized: User not authenticated",
+                    errorCode: "UNAUTHORIZED",
+                },
+            });
+
             return res.status(401).json({ message: "Unauthorized: User not authenticated" });
         }
 
         if (!mongoose.Types.ObjectId.isValid(taskerId) || !mongoose.Types.ObjectId.isValid(clientId)) {
+            await logQuoteRequest({
+                action: "QUOTE_REQUESTED",
+                user: req.user,
+                req,
+                taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid tasker or client ID",
+                    errorCode: "INVALID_IDS",
+                    providedTaskerId: taskerId,
+                    providedClientId: clientId,
+                },
+            });
+
             return res.status(400).json({ message: "Invalid tasker or client ID" });
         }
 
         if (!taskTitle || !taskDescription || !location) {
+            await logQuoteRequest({
+                action: "QUOTE_REQUESTED",
+                user: req.user,
+                req,
+                taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task title, description, and location are required",
+                    errorCode: "MISSING_FIELDS",
+                    providedFields: {
+                        hasTaskTitle: !!taskTitle,
+                        hasTaskDescription: !!taskDescription,
+                        hasLocation: !!location,
+                    },
+                },
+            });
+
             return res.status(400).json({ message: "Task title, description, and location are required" });
         }
 
-        const tasker = await mongoose.models.User.findById(taskerId);
+        // ==================== VALIDATE USERS ====================
+
+        const tasker = await User.findById(taskerId);
         if (!tasker || tasker.currentRole !== "tasker") {
+            await logQuoteRequest({
+                action: "QUOTE_REQUESTED",
+                user: req.user,
+                req,
+                taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Tasker not found or invalid role",
+                    errorCode: "INVALID_TASKER",
+                    taskerExists: !!tasker,
+                    taskerRole: tasker?.currentRole,
+                },
+            });
+
             return res.status(400).json({ message: "Tasker not found or invalid role" });
         }
 
-        const client = await mongoose.models.User.findById(clientId);
+        const client = await User.findById(clientId);
         if (!client || client.currentRole !== "client") {
+            await logQuoteRequest({
+                action: "QUOTE_REQUESTED",
+                user: req.user,
+                req,
+                taskTitle,
+                taskerId,
+                taskerName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Client not found or invalid role",
+                    errorCode: "INVALID_CLIENT",
+                },
+            });
+
             return res.status(400).json({ message: "Client not found or invalid role" });
         }
+
+        // ==================== CREATE QUOTE REQUEST ====================
 
         const requestQuote = new RequestQuote({
             tasker: taskerId,
@@ -2880,21 +2836,17 @@ const createRequestQuote = async (req, res) => {
         });
 
         await requestQuote.save();
+        console.log("✅ Quote request saved:", requestQuote._id);
 
         const populatedRequestQuote = await RequestQuote.findById(requestQuote._id)
             .populate("tasker", "firstName lastName email phone currentRole")
             .populate("client", "firstName lastName email phone currentRole");
 
-        // FIX: Get user names safely
-        const clientName = client
-            ? `${client.firstName} ${client.lastName}`
-            : "A client";
+        // Get names for notifications and logging
+        const clientName = `${client.firstName} ${client.lastName}`;
+        const taskerName = `${tasker.firstName} ${tasker.lastName}`;
 
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "The tasker";
-
-        // Format preferred date for notifications
+        // Format date for display
         const formattedDate = preferredDateTime
             ? new Date(preferredDateTime).toLocaleDateString('en-US', {
                 weekday: 'long',
@@ -2906,19 +2858,46 @@ const createRequestQuote = async (req, res) => {
             })
             : "Flexible";
 
-        // Format budget for notifications
         const formattedBudget = budget ? `$${budget}` : "Negotiable";
 
-        // Create notification for the tasker (new quote request)
+        // ✅ Log successful quote request
+        await logQuoteRequest({
+            action: "QUOTE_REQUESTED",
+            user: { ...req.user, ...client.toObject() },
+            req,
+            quoteId: requestQuote._id.toString(),
+            taskerId: tasker._id.toString(),
+            taskerName,
+            taskTitle,
+            budget,
+            status: "success",
+            metadata: {
+                // Quote details
+                taskDescription: taskDescription.substring(0, 200),
+                location,
+                preferredDateTime: preferredDateTime || null,
+                formattedDate,
+                urgency: urgency || "Flexible",
+
+                // User details
+                clientEmail: client.email,
+                clientPhone: client.phone,
+                taskerEmail: tasker.email,
+                taskerRating: tasker.rating,
+                taskerReviewCount: tasker.reviewCount,
+            },
+        });
+
+        // ==================== SEND NOTIFICATIONS ====================
+
+        // Notify tasker
         try {
-            // Debug: Log notification details
             console.log("Creating quote request notification for tasker:", {
                 taskerId,
                 clientName,
                 taskTitle,
                 location,
                 budget: formattedBudget,
-                preferredDateTime: formattedDate
             });
 
             await createNotification(
@@ -2934,7 +2913,7 @@ const createRequestQuote = async (req, res) => {
             console.error("❌ Failed to create tasker notification (non-blocking):", notifErr);
         }
 
-        // Create confirmation notification for the client
+        // Notify client (confirmation)
         try {
             await createNotification(
                 clientId,
@@ -2949,13 +2928,34 @@ const createRequestQuote = async (req, res) => {
             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
         }
 
-        res.status(201).json({ message: "Quote request created successfully", requestQuote: populatedRequestQuote });
+        res.status(201).json({
+            success: true,
+            message: "Quote request created successfully",
+            requestQuote: populatedRequestQuote
+        });
+
     } catch (error) {
-        console.error("Error creating quote request:", error);
+        console.error("❌ Error creating quote request:", error);
+
+        // ✅ Log unexpected error
+        await logQuoteRequest({
+            action: "QUOTE_REQUESTED",
+            user: req.user,
+            req,
+            taskTitle,
+            taskerId,
+            budget,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+            },
+        });
+
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 // ----------------------------------------------------------------
 
@@ -3860,54 +3860,10 @@ const updateRequestQuote = async (req, res) => {
 
 
 
-// Delete request quote
-//  const deleteRequestQuote = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         if (!mongoose.Types.ObjectId.isValid(id)) {
-//             return res.status(400).json({ message: "Invalid request quote ID" });
-//         }
-//         const requestQuote = await RequestQuote.findById(id);
-//         if (!requestQuote) {
-//             return res.status(404).json({ message: "Request quote not found" });
-//         }
 
-//         // Ensure the authenticated user is authorized (client or tasker)
-//         const userId = req.user.id;
-//         if (requestQuote.client.toString() !== userId && requestQuote.tasker.toString() !== userId) {
-//             return res.status(403).json({ message: "Unauthorized to delete this request quote" });
-//         }
-
-//         const deletedQuote = await RequestQuote.findByIdAndDelete(id);
-
-//         // Create notification for the other party (non-blocking)
-//         try {
-//             const deleterRole = req.user.role; // Assume req.user has role from middleware
-//             const otherPartyId = deleterRole === "client" ? requestQuote.tasker : requestQuote.client;
-//             const otherPartyName = deleterRole === "client" ? "Tasker" : "Client";
-//             const deleterName = req.user.firstName + " " + req.user.lastName;
-//             await createNotification(
-//                 otherPartyId,
-//                 "Quote Request Deleted",
-//                 `${otherPartyName} "${deleterName}" has deleted the quote request "${requestQuote.taskTitle}".`,
-//                 "quote-deleted",
-//                 id // Link to quote request (even if deleted)
-//             );
-//             console.log("Notification created for quote deletion"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Request quote deleted successfully" });
-//     } catch (error) {
-//         console.error("Error deleting request quote:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// };
 const deleteRequestQuote = async (req, res) => {
     try {
         const { id } = req.params;
-
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({ message: "Invalid request quote ID" });
         }
@@ -3920,10 +3876,23 @@ const deleteRequestQuote = async (req, res) => {
             return res.status(404).json({ message: "Request quote not found" });
         }
 
+        console.log(requestQuote);
+
         // Ensure the authenticated user is authorized (client or tasker)
         const userId = req.user.id;
+        console.log(userId);
+
+        // Check if client exists (should always exist)
+        if (!requestQuote.client) {
+            return res.status(500).json({ message: "Request quote has invalid client reference" });
+        }
+
         const isClient = requestQuote.client._id.toString() === userId;
-        const isTasker = requestQuote.tasker._id.toString() === userId;
+
+        // ✅ FIX: Only check tasker if tasker exists (could be null if no tasker assigned yet)
+        const isTasker = requestQuote.tasker
+            ? requestQuote.tasker._id.toString() === userId
+            : false;
 
         if (!isClient && !isTasker) {
             return res.status(403).json({ message: "Unauthorized to delete this request quote" });
@@ -3931,58 +3900,72 @@ const deleteRequestQuote = async (req, res) => {
 
         // Store quote details before deletion for notifications
         const quoteTaskTitle = requestQuote.taskTitle;
-        const quoteTaskerId = requestQuote.tasker._id;
         const quoteClientId = requestQuote.client._id;
-        const taskerName = `${requestQuote.tasker.firstName} ${requestQuote.tasker.lastName}`;
         const clientName = `${requestQuote.client.firstName} ${requestQuote.client.lastName}`;
         const quoteBudget = requestQuote.budget;
+
+        // ✅ FIX: Safely get tasker info (may be null)
+        const quoteTaskerId = requestQuote.tasker?._id || null;
+        const taskerName = requestQuote.tasker
+            ? `${requestQuote.tasker.firstName} ${requestQuote.tasker.lastName}`
+            : null;
 
         // Delete the quote
         await RequestQuote.findByIdAndDelete(id);
 
-        // FIX: Get deleter details from database
+        // Get deleter details from database
         const deleter = await User.findById(userId).select("firstName lastName");
         const deleterName = deleter
             ? `${deleter.firstName} ${deleter.lastName}`
             : "Someone";
 
-        // Determine who should be notified (the other party)
-        const otherPartyId = isClient ? quoteTaskerId : quoteClientId;
-        const otherPartyName = isClient ? taskerName : clientName;
+        // ✅ FIX: Only notify the other party if they exist
+        if (requestQuote.tasker && quoteTaskerId) {
+            // Determine who should be notified (the other party)
+            const otherPartyId = isClient ? quoteTaskerId : quoteClientId;
 
-        // Create notification for the other party
-        try {
-            // Debug: Log notification details
-            console.log("Creating quote deletion notification:", {
-                recipientId: otherPartyId,
-                deleterName,
-                quoteTaskTitle,
-                isClient
-            });
+            // Create notification for the other party
+            try {
+                console.log("Creating quote deletion notification:", {
+                    recipientId: otherPartyId,
+                    deleterName,
+                    quoteTaskTitle,
+                    isClient
+                });
 
-            const notificationTitle = "❌ Quote Request Deleted";
-            const notificationMessage = isClient
-                ? `${deleterName} has deleted the quote request for "${quoteTaskTitle}". This quote is no longer available.`
-                : `${deleterName} has withdrawn from the quote request "${quoteTaskTitle}". You may want to request a quote from another tasker.`;
+                const notificationTitle = "❌ Quote Request Deleted";
+                const notificationMessage = isClient
+                    ? `${deleterName} has deleted the quote request for "${quoteTaskTitle}". This quote is no longer available.`
+                    : `${deleterName} has withdrawn from the quote request "${quoteTaskTitle}". You may want to request a quote from another tasker.`;
 
-            await createNotification(
-                otherPartyId,
-                notificationTitle,
-                notificationMessage,
-                "quote-deleted",
-                id
-            );
-            console.log("✅ Notification created for other party - quote deleted");
+                await createNotification(
+                    otherPartyId,
+                    notificationTitle,
+                    notificationMessage,
+                    "quote-deleted",
+                    id
+                );
+                console.log("✅ Notification created for other party - quote deleted");
 
-        } catch (notifErr) {
-            console.error("❌ Failed to create notification (non-blocking):", notifErr);
+            } catch (notifErr) {
+                console.error("❌ Failed to create notification (non-blocking):", notifErr);
+            }
+        } else {
+            console.log("ℹ️ No tasker assigned yet, skipping tasker notification");
         }
 
         // Send confirmation notification to the deleter
         try {
-            const confirmationMessage = isClient
-                ? `Your quote request for "${quoteTaskTitle}" has been deleted successfully. ${taskerName} has been notified.`
-                : `You have withdrawn from the quote request "${quoteTaskTitle}" by ${clientName}.`;
+            let confirmationMessage;
+
+            if (isClient) {
+                // ✅ FIX: Handle case when no tasker is assigned
+                confirmationMessage = taskerName
+                    ? `Your quote request for "${quoteTaskTitle}" has been deleted successfully. ${taskerName} has been notified.`
+                    : `Your quote request for "${quoteTaskTitle}" has been deleted successfully.`;
+            } else {
+                confirmationMessage = `You have withdrawn from the quote request "${quoteTaskTitle}" by ${clientName}.`;
+            }
 
             await createNotification(
                 userId,
@@ -4005,113 +3988,72 @@ const deleteRequestQuote = async (req, res) => {
 };
 
 
-// export const submitBid = async (req, res) => {
-//     try {
-//         const { quoteId } = req.params;
-//         const { bidAmount, bidDescription, estimatedDuration } = req.body;
-//         const taskerId = req.user.id;
 
-//         if (!mongoose.Types.ObjectId.isValid(quoteId)) {
-//             return res.status(400).json({ message: 'Invalid quote ID' });
-//         }
 
-//         const quote = await RequestQuote.findById(quoteId).populate('tasker', 'currentRole');
-//         if (!quote) {
-//             return res.status(404).json({ message: 'Quote not found' });
-//         }
-
-//         if (quote.tasker._id.toString() !== taskerId) {
-//             return res.status(403).json({ message: 'Unauthorized: Only the assigned tasker can bid' });
-//         }
-
-//         if (quote.status === 'accepted' || quote.status === 'completed' || quote.status === 'rejected') {
-//             return res.status(400).json({ message: 'Cannot bid on this quote' });
-//         }
-
-//         // Validate inputs
-//         if (!bidAmount || bidAmount <= 0) {
-//             return res.status(400).json({ message: 'Valid bid amount is required' });
-//         }
-
-//         const newBid = {
-//             bidAmount,
-//             bidDescription: bidDescription || '',
-//             estimatedDuration: estimatedDuration || 1,
-//             // submittedAt and status will default via schema
-//         };
-
-//         quote.bids.push(newBid);
-
-//         // Set status to 'bidded' if this is the first bid
-//         if (quote.bids.length === 1) {
-//             quote.status = 'bidded';
-//         }
-
-//         await quote.save();
-
-//         const populatedQuote = await RequestQuote.findById(quoteId)
-//             .populate("tasker", "firstName lastName email phone currentRole")
-//             .populate("client", "firstName lastName email phone currentRole");
-
-//         // Notification to client: new bid received
-//         try {
-//             const tasker = await User.findById(taskerId).select('firstName lastName');
-//             await createNotification(
-//                 quote.client,
-//                 'New Bid Received',
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" submitted a bid of $${bidAmount} for your quote "${quote.taskTitle}".`,
-//                 'new-bid',
-//                 quoteId
-//             );
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
-//         }
-
-//         res.status(201).json({ message: 'Bid submitted successfully', quote: populatedQuote });
-//     } catch (error) {
-//         console.error('Error submitting bid:', error);
-//         res.status(500).json({ message: 'Server error' });
-//     }
-// };
-
-// Fee constants (same as bookings)
-
-// Calculate double-sided fees for quotes
 const calculateQuoteFees = (bidAmountInCents) => {
-    // Client side: adds 15% + tax on that fee
-    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
-    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
+    // ─── CLIENT SIDE FEES (Added to bid amount) ───
+    const clientPlatformFee = Math.round(bidAmountInCents * CLIENT_PLATFORM_FEE_PERCENT);
+    const reservationFee = RESERVATION_FEE_CENTS;
+    const clientTax = Math.round(bidAmountInCents * CLIENT_TAX_PERCENT);
+    const totalClientPays = bidAmountInCents + clientPlatformFee + reservationFee + clientTax;
 
-    // Tasker side: deducts 15% from bid amount
-    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taskerPayout = bidAmountInCents - taskerPlatformFee;
+    // ─── TASKER SIDE FEES (Deducted from bid amount) ───
+    const taskerPlatformFee = Math.round(bidAmountInCents * TASKER_PLATFORM_FEE_PERCENT);
+    const taskerTax = Math.round(bidAmountInCents * TASKER_TAX_PERCENT);
+    const taskerPayout = bidAmountInCents - taskerPlatformFee - taskerTax;
 
-    // Platform keeps both fees
-    const platformTotal = clientPlatformFee + taxOnClientFee + taskerPlatformFee;
+    // ─── PLATFORM REVENUE ───
+    const applicationFee = totalClientPays - taskerPayout;
+    const platformTotal = clientPlatformFee + reservationFee + clientTax + taskerPlatformFee + taskerTax;
 
     return {
         // In cents
         bidAmountCents: bidAmountInCents,
+
+        // Client fees (cents)
         clientPlatformFeeCents: clientPlatformFee,
-        taxOnClientFeeCents: taxOnClientFee,
+        reservationFeeCents: reservationFee,
+        clientTaxCents: clientTax,
         totalClientPaysCents: totalClientPays,
+
+        // Tasker deductions (cents)
         taskerPlatformFeeCents: taskerPlatformFee,
+        taskerTaxCents: taskerTax,
         taskerPayoutCents: taskerPayout,
+
+        // Platform (cents)
+        applicationFeeCents: applicationFee,
         platformTotalCents: platformTotal,
 
         // In dollars (for display)
         bidAmount: bidAmountInCents / 100,
+
+        // Client fees (dollars)
         clientPlatformFee: clientPlatformFee / 100,
-        taxOnClientFee: taxOnClientFee / 100,
+        reservationFee: reservationFee / 100,
+        clientTax: clientTax / 100,
         totalClientPays: totalClientPays / 100,
+
+        // Tasker deductions (dollars)
         taskerPlatformFee: taskerPlatformFee / 100,
+        taskerTax: taskerTax / 100,
         taskerPayout: taskerPayout / 100,
+
+        // Platform (dollars)
+        applicationFee: applicationFee / 100,
         platformTotal: platformTotal / 100,
+
+        // Percentages for display
+        clientPlatformFeePercent: CLIENT_PLATFORM_FEE_PERCENT * 100,
+        clientTaxPercent: CLIENT_TAX_PERCENT * 100,
+        taskerPlatformFeePercent: TASKER_PLATFORM_FEE_PERCENT * 100,
+        taskerTaxPercent: TASKER_TAX_PERCENT * 100,
     };
 };
 
-// NEW: Preview fees endpoint (for the modal)
+/**
+ * Preview fees endpoint (for the tasker bid modal)
+ */
 export const previewBidFees = async (req, res) => {
     try {
         const { bidAmount } = req.body;
@@ -4125,24 +4067,55 @@ export const previewBidFees = async (req, res) => {
         const bidAmountInCents = Math.round(Number(bidAmount) * 100);
         const fees = calculateQuoteFees(bidAmountInCents);
 
+        // Validate tasker payout is positive
+        if (fees.taskerPayoutCents < 0) {
+            return res.status(400).json({
+                message: 'Bid amount too small to cover fees',
+                code: 'BID_TOO_SMALL'
+            });
+        }
+
         console.log('💰 Quote Bid Fee Preview:');
-        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
-        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
-        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
-        console.log(`   CLIENT PAYS:          $${fees.totalClientPays.toFixed(2)}`);
-        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
-        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+        console.log(`   ┌─────────────────────────────────────────────────────┐`);
+        console.log(`   │ BID AMOUNT:                  $${fees.bidAmount.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ CLIENT SIDE:`);
+        console.log(`   │   Platform Fee (10%):       +$${fees.clientPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Reservation Fee:          +$${fees.reservationFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   HST (13%):                +$${fees.clientTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   CLIENT PAYS:               $${fees.totalClientPays.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ TASKER SIDE:`);
+        console.log(`   │   Platform Fee (12%):       -$${fees.taskerPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Tax (13%):                -$${fees.taskerTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   TASKER RECEIVES:           $${fees.taskerPayout.toFixed(2).padStart(8)}`);
+        console.log(`   └─────────────────────────────────────────────────────┘`);
 
         res.status(200).json({
             success: true,
             fees: {
                 bidAmount: fees.bidAmount,
+
+                // Client side
                 clientPlatformFee: fees.clientPlatformFee,
-                taxOnClientFee: fees.taxOnClientFee,
+                clientPlatformFeePercent: fees.clientPlatformFeePercent,
+                reservationFee: fees.reservationFee,
+                clientTax: fees.clientTax,
+                clientTaxPercent: fees.clientTaxPercent,
                 totalClientPays: fees.totalClientPays,
+
+                // Tasker side
                 taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPlatformFeePercent: fees.taskerPlatformFeePercent,
+                taskerTax: fees.taskerTax,
+                taskerTaxPercent: fees.taskerTaxPercent,
                 taskerPayout: fees.taskerPayout,
+
+                // Platform
                 platformTotal: fees.platformTotal,
+                applicationFee: fees.applicationFee,
+
+                feeStructure: 'client-10-5-13_tasker-12-13',
             }
         });
 
@@ -4152,16 +4125,19 @@ export const previewBidFees = async (req, res) => {
     }
 };
 
+/**
+ * Submit a bid on a quote request
+ */
 export const submitBid = async (req, res) => {
     try {
         const { quoteId } = req.params;
         const { bidAmount, bidDescription, estimatedDuration } = req.body;
-        const taskerId = req.user.id;
+        const taskerId = req.user._id || req.user.id; // ✅ Handle both formats
 
-        console.log('=== SUBMIT BID ===');
-        console.log('quoteId:', quoteId);
-        console.log('taskerId:', taskerId);
-        console.log('body:', req.body);
+        console.log('=== SUBMIT BID START ===');
+        console.log('1. quoteId:', quoteId);
+        console.log('2. taskerId:', taskerId);
+        console.log('3. body:', req.body);
 
         // Check if body was parsed
         if (!req.body || Object.keys(req.body).length === 0) {
@@ -4185,32 +4161,31 @@ export const submitBid = async (req, res) => {
 
         // Minimum amount check
         const bidAmountInCents = Math.round(Number(bidAmount) * 100);
-        if (bidAmountInCents < 100) { // Minimum $1
+        if (bidAmountInCents < 100) {
             return res.status(400).json({
                 message: 'Minimum bid amount is $1.00'
             });
         }
 
-        // Find the quote
+        console.log('4. Finding quote...');
         const quote = await RequestQuote.findById(quoteId);
 
         if (!quote) {
             return res.status(404).json({ message: 'Quote not found' });
         }
-
-        console.log('Quote tasker ID (raw):', quote.tasker);
-        console.log('Logged in taskerId:', taskerId);
+        console.log('5. Quote found:', quote._id);
 
         // Check ownership
         if (!quote.tasker) {
             return res.status(400).json({ message: 'This quote has no assigned tasker' });
         }
 
-        if (quote.tasker.toString() !== taskerId) {
+        if (quote.tasker.toString() !== taskerId.toString()) {
             return res.status(403).json({
                 message: 'Unauthorized: Only the assigned tasker can bid on this quote'
             });
         }
+        console.log('6. Ownership verified');
 
         // Check if quote status allows bidding
         const nonBiddableStatuses = ['accepted', 'completed', 'in_progress', 'cancelled', 'expired'];
@@ -4219,20 +4194,35 @@ export const submitBid = async (req, res) => {
                 message: `Cannot bid on a quote with status: ${quote.status}`
             });
         }
+        console.log('7. Status allows bidding:', quote.status);
 
-        // ✅ Calculate fees
-        const fees = calculateQuoteFees(bidAmountInCents);
+        // ✅ Calculate fees - CHECK IF FUNCTION EXISTS
+        console.log('8. Calculating fees...');
+        let fees;
+        try {
+            if (typeof calculateQuoteFees !== 'function') {
+                console.error('❌ calculateQuoteFees is not defined!');
+                // Use inline calculation as fallback
+                fees = calculateFeesFallback(bidAmountInCents);
+            } else {
+                fees = calculateQuoteFees(bidAmountInCents);
+            }
+            console.log('9. Fees calculated:', fees.taskerPayout);
+        } catch (feeError) {
+            console.error('❌ Fee calculation error:', feeError.message);
+            return res.status(500).json({ message: 'Error calculating fees' });
+        }
 
-        console.log('💰 DOUBLE-SIDED FEE Quote Bid Breakdown:');
-        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
-        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
-        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
-        console.log(`   TOTAL CLIENT PAYS:    $${fees.totalClientPays.toFixed(2)}`);
-        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
-        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
-        console.log(`   PLATFORM KEEPS:       $${fees.platformTotal.toFixed(2)}`);
+        // Validate tasker payout is positive
+        if (fees.taskerPayoutCents < 0) {
+            return res.status(400).json({
+                message: 'Bid amount too small to cover fees',
+                code: 'BID_TOO_SMALL'
+            });
+        }
 
-        // ✅ CREATE BID WITH FEE BREAKDOWN
+        // Create bid object
+        console.log('10. Creating bid object...');
         const newBid = {
             tasker: new mongoose.Types.ObjectId(taskerId),
             bidAmount: Number(bidAmount),
@@ -4240,38 +4230,49 @@ export const submitBid = async (req, res) => {
             estimatedDuration: Number(estimatedDuration) || 1,
             submittedAt: new Date(),
             status: 'pending',
-
-            // Store fee breakdown for later use when accepted
             feeBreakdown: {
+                feeStructure: 'client-10-5-13_tasker-12-13',
                 bidAmountCents: fees.bidAmountCents,
                 clientPlatformFeeCents: fees.clientPlatformFeeCents,
-                taxOnClientFeeCents: fees.taxOnClientFeeCents,
+                reservationFeeCents: fees.reservationFeeCents,
+                clientTaxCents: fees.clientTaxCents,
                 totalClientPaysCents: fees.totalClientPaysCents,
                 taskerPlatformFeeCents: fees.taskerPlatformFeeCents,
+                taskerTaxCents: fees.taskerTaxCents,
                 taskerPayoutCents: fees.taskerPayoutCents,
-                platformTotalCents: fees.platformTotalCents,
+                applicationFeeCents: fees.applicationFeeCents,
             }
         };
-
-        console.log('=== NEW BID OBJECT ===');
-        console.log(JSON.stringify(newBid, null, 2));
+        console.log('11. Bid object created');
 
         // Add bid to the quote
         quote.bids.push(newBid);
 
-        // Update status to 'bidded' if first bid or still pending
+        // Update status
         if (quote.status === 'pending' || quote.status === 'rejected') {
             quote.status = 'bidded';
         }
 
         // Save the updated quote
+        console.log('12. Saving quote...');
         await quote.save();
+        console.log('13. ✅ Quote saved successfully');
 
-        // Populate for response
-        const populatedQuote = await RequestQuote.findById(quoteId)
-            .populate('tasker', 'firstName lastName email phone currentRole')
-            .populate('client', 'firstName lastName email phone currentRole')
-            .populate('bids.tasker', 'firstName lastName');
+        // Populate for response - USE .lean() to avoid circular references
+        console.log('14. Populating quote...');
+        let populatedQuote;
+        try {
+            populatedQuote = await RequestQuote.findById(quoteId)
+                .populate('tasker', 'firstName lastName email phone currentRole')
+                .populate('client', 'firstName lastName email phone currentRole')
+                .populate('bids.tasker', 'firstName lastName')
+                .lean(); // ✅ IMPORTANT: Converts to plain JS object
+            console.log('15. ✅ Quote populated');
+        } catch (popError) {
+            console.error('❌ Population error:', popError.message);
+            // Continue with unpopulated data
+            populatedQuote = quote.toObject();
+        }
 
         if (!populatedQuote) {
             return res.status(500).json({ message: 'Error retrieving updated quote' });
@@ -4282,90 +4283,79 @@ export const submitBid = async (req, res) => {
             ? `${populatedQuote.tasker.firstName} ${populatedQuote.tasker.lastName}`
             : 'The tasker';
 
-        const clientName = populatedQuote.client
-            ? `${populatedQuote.client.firstName} ${populatedQuote.client.lastName}`
-            : 'The client';
+        // Send notifications (wrapped in try-catch to not break response)
+        console.log('16. Sending notifications...');
 
-        // Format duration
-        const duration = Number(estimatedDuration) || 1;
-        const durationText = `${duration} hour${duration !== 1 ? 's' : ''}`;
-
-        // Notification to client (show what they'll pay)
+        // Client notification
         try {
-            const isFirstBid = quote.bids.length === 1;
-
-            const notificationTitle = isFirstBid
-                ? '🎉 First Bid Received!'
-                : '💰 New Bid Received!';
-
-            let notificationMessage = `${taskerName} submitted a bid of $${bidAmount} for your quote request "${populatedQuote.taskTitle}". `;
-            notificationMessage += `Total with fees: $${fees.totalClientPays.toFixed(2)}. `;
-            notificationMessage += `Estimated duration: ${durationText}.`;
-
-            if (bidDescription && bidDescription.trim()) {
-                const truncatedDescription = bidDescription.length > 50
-                    ? `${bidDescription.substring(0, 50)}...`
-                    : bidDescription;
-                notificationMessage += ` Note: "${truncatedDescription}"`;
-            }
-
-            notificationMessage += ' Review and respond!';
-
             if (populatedQuote.client?._id) {
                 await createNotification(
                     populatedQuote.client._id,
-                    notificationTitle,
-                    notificationMessage,
+                    '💰 New Bid Received!',
+                    `${taskerName} submitted a bid of $${bidAmount} for "${populatedQuote.taskTitle}"`,
                     'quote-bid-received',
                     quoteId
                 );
-                console.log('✅ Notification sent to client');
+                console.log('17. ✅ Client notification sent');
             }
         } catch (notifErr) {
             console.error('❌ Client notification failed:', notifErr.message);
+            // Don't return - continue to send response
         }
 
-        // Notification to tasker (show what they'll receive)
+        // Tasker notification
         try {
             await createNotification(
                 taskerId,
                 '✅ Bid Submitted Successfully',
-                `Your bid of $${bidAmount} for "${populatedQuote.taskTitle}" has been submitted. You'll receive $${fees.taskerPayout.toFixed(2)} (after 15% platform fee) when completed. ${clientName} will be notified.`,
+                `Your bid of $${bidAmount} for "${populatedQuote.taskTitle}" has been submitted.`,
                 'quote-bid-submitted',
                 quoteId
             );
-            console.log('✅ Confirmation sent to tasker');
+            console.log('18. ✅ Tasker notification sent');
         } catch (notifErr) {
             console.error('❌ Tasker notification failed:', notifErr.message);
+            // Don't return - continue to send response
         }
 
-        // Success - include fee breakdown in response
-        console.log('=== BID SUBMITTED SUCCESSFULLY ===');
-        res.status(201).json({
+        // ✅ Send clean response
+        console.log('19. Preparing response...');
+
+        const responseData = {
             success: true,
             message: 'Bid submitted successfully',
-            quote: populatedQuote,
+            quote: {
+                _id: populatedQuote._id,
+                taskTitle: populatedQuote.taskTitle,
+                taskDescription: populatedQuote.taskDescription,
+                status: populatedQuote.status,
+                bids: populatedQuote.bids,
+                client: populatedQuote.client,
+                tasker: populatedQuote.tasker,
+            },
             feeBreakdown: {
                 bidAmount: fees.bidAmount,
                 clientPlatformFee: fees.clientPlatformFee,
-                taxOnClientFee: fees.taxOnClientFee,
+                reservationFee: fees.reservationFee,
+                clientTax: fees.clientTax,
                 totalClientPays: fees.totalClientPays,
                 taskerPlatformFee: fees.taskerPlatformFee,
+                taskerTax: fees.taskerTax,
                 taskerPayout: fees.taskerPayout,
-                platformTotal: fees.platformTotal,
+                applicationFee: fees.applicationFee,
             }
-        });
+        };
+
+        console.log('20. ✅ Sending success response');
+        return res.status(201).json(responseData);
 
     } catch (error) {
         console.error('=== ERROR SUBMITTING BID ===');
         console.error('Error name:', error.name);
         console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
 
         if (error.name === 'ValidationError') {
-            console.error('Validation errors:');
-            for (const field in error.errors) {
-                console.error(`  ${field}: ${error.errors[field].message}`);
-            }
             const messages = Object.values(error.errors).map(e => e.message);
             return res.status(400).json({
                 message: 'Validation error',
@@ -4377,200 +4367,15 @@ export const submitBid = async (req, res) => {
             return res.status(400).json({ message: 'Invalid ID format' });
         }
 
-        res.status(500).json({
+        return res.status(500).json({
             message: 'Server error while submitting bid',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
-
-
-
-
-
-// export const acceptBid = async (req, res) => {
-//     try {
-//         const { quoteId, bidId } = req.params;
-//         const clientId = req.user.id;
-
-//         const quote = await RequestQuote.findById(quoteId)
-//             .populate('client', 'firstName lastName email stripeCustomerId defaultPaymentMethod')
-//             .populate('tasker', 'firstName lastName email stripeConnectAccountId stripeConnectStatus');
-
-//         if (!quote) {
-//             return res.status(404).json({ message: 'Quote not found' });
-//         }
-
-//         if (quote.client._id.toString() !== clientId) {
-//             return res.status(403).json({ message: 'Unauthorized' });
-//         }
-
-//         const bid = quote.bids.id(bidId);
-//         if (!bid || bid.status !== 'pending') {
-//             return res.status(400).json({ message: 'Bid not found or already decided' });
-//         }
-
-//         // ⭐ Validate tasker can receive payments
-//         let taskerStripeAccountId;
-//         try {
-//             taskerStripeAccountId = await validateTaskerCanReceivePayments(quote.tasker._id);
-//         } catch (connectError) {
-//             return res.status(400).json({
-//                 error: connectError.message,
-//                 code: 'TASKER_PAYMENT_NOT_SETUP',
-//             });
-//         }
-
-//         // Get client payment info
-//         const client = quote.client;
-//         if (!client.stripeCustomerId || !client.defaultPaymentMethod) {
-//             return res.status(400).json({
-//                 message: 'Please add a payment method first',
-//                 code: 'NO_PAYMENT_METHOD'
-//             });
-//         }
-
-//         // Calculate amounts
-//         const amountInCents = Math.round(bid.bidAmount * 100);
-//         const { platformFee, taskerPayout } = calculateFees(amountInCents);
-
-//         // ⭐ Create PaymentIntent with split
-//         const paymentIntent = await stripe.paymentIntents.create({
-//             amount: amountInCents,
-//             currency: 'cad',
-//             customer: client.stripeCustomerId,
-//             payment_method: client.defaultPaymentMethod,
-//             capture_method: 'manual',
-//             description: `Quote: ${quote.taskTitle}`,
-
-//             application_fee_amount: platformFee,
-//             transfer_data: {
-//                 destination: taskerStripeAccountId,
-//             },
-
-//             metadata: {
-//                 type: 'quote',
-//                 quoteId: quoteId,
-//                 bidId: bidId,
-//             },
-//             automatic_payment_methods: {
-//                 enabled: true,
-//                 allow_redirects: 'never'
-//             },
-//             confirm: true,
-//         });
-
-//         if (paymentIntent.status !== 'requires_capture') {
-//             return res.status(400).json({
-//                 message: 'Payment authorization failed',
-//                 error: paymentIntent.last_payment_error?.message
-//             });
-//         }
-
-//         // Update bid status
-//         bid.status = 'accepted';
-//         quote.bids.forEach(b => {
-//             if (b._id.toString() !== bidId) b.status = 'rejected';
-//         });
-
-//         quote.status = 'accepted';
-//         quote.acceptedBid = {
-//             bidId: bid._id,
-//             tasker: quote.tasker._id,
-//             bidAmount: bid.bidAmount,
-//             bidDescription: bid.bidDescription,
-//             acceptedAt: new Date(),
-//         };
-
-//         // ⭐ Save payment info
-//         quote.payment = {
-//             paymentIntentId: paymentIntent.id,
-//             status: 'held',
-//             grossAmount: amountInCents,
-//             platformFee: platformFee,
-//             taskerPayout: taskerPayout,
-//             currency: 'cad',
-//             authorizedAt: new Date(),
-//         };
-
-//         await quote.save();
-
-//         // Notifications
-//         const clientName = `${client.firstName} ${client.lastName}`;
-//         const taskerName = `${quote.tasker.firstName} ${quote.tasker.lastName}`;
-//         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
-
-//         try {
-//             await createNotification(
-//                 quote.tasker._id,
-//                 "🎉 Your Bid Was Accepted!",
-//                 `${clientName} has accepted your bid of $${bid.bidAmount} for "${quote.taskTitle}". Payment is held. You'll receive $${taskerPayoutFormatted} when completed.`,
-//                 'quote-bid-accepted',
-//                 quoteId
-//             );
-//         } catch (notifErr) {
-//             console.error("Notification failed:", notifErr);
-//         }
-
-//         res.status(200).json({
-//             message: 'Bid accepted successfully',
-//             quote,
-//             paymentBreakdown: {
-//                 total: bid.bidAmount,
-//                 platformFee: platformFee / 100,
-//                 taskerPayout: taskerPayout / 100,
-//             }
-//         });
-
-//     } catch (error) {
-//         console.error('Error accepting bid:', error);
-//         res.status(500).json({ message: 'Server error' });
-//     }
-// };
-
-
-
-
-const calculateQuoteFeesClient = (bidAmountInCents) => {
-    // Client side: adds 15% + tax on that fee
-    const clientPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taxOnClientFee = Math.round(clientPlatformFee * TAX_PERCENT);
-    const totalClientPays = bidAmountInCents + clientPlatformFee + taxOnClientFee;
-
-    // Tasker side: deducts 15% from bid amount
-    const taskerPlatformFee = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
-    const taskerPayout = bidAmountInCents - taskerPlatformFee;
-
-    // Platform keeps both fees (client fee + tax + tasker fee)
-    const platformTotal = clientPlatformFee + taxOnClientFee + taskerPlatformFee;
-
-    // Application fee for Stripe = totalClientPays - taskerPayout
-    const applicationFee = totalClientPays - taskerPayout;
-
-    return {
-        // In cents
-        bidAmountCents: bidAmountInCents,
-        clientPlatformFeeCents: clientPlatformFee,
-        taxOnClientFeeCents: taxOnClientFee,
-        totalClientPaysCents: totalClientPays,
-        taskerPlatformFeeCents: taskerPlatformFee,
-        taskerPayoutCents: taskerPayout,
-        platformTotalCents: platformTotal,
-        applicationFeeCents: applicationFee,
-
-        // In dollars (for display)
-        bidAmount: bidAmountInCents / 100,
-        clientPlatformFee: clientPlatformFee / 100,
-        taxOnClientFee: taxOnClientFee / 100,
-        totalClientPays: totalClientPays / 100,
-        taskerPlatformFee: taskerPlatformFee / 100,
-        taskerPayout: taskerPayout / 100,
-        platformTotal: platformTotal / 100,
-        applicationFee: applicationFee / 100,
-    };
-};
-
-// NEW: Preview fees endpoint for client (before accepting bid)
+/**
+ * Preview fees before accepting a bid (for the client accept modal)
+ */
 export const previewAcceptBidFees = async (req, res) => {
     try {
         const { quoteId, bidId } = req.params;
@@ -4593,15 +4398,23 @@ export const previewAcceptBidFees = async (req, res) => {
         }
 
         const bidAmountInCents = Math.round(bid.bidAmount * 100);
-        const fees = calculateQuoteFeesClient(bidAmountInCents);
+        const fees = calculateQuoteFees(bidAmountInCents);
 
         console.log('💰 Quote Accept Fee Preview:');
-        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
-        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
-        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
-        console.log(`   YOU PAY:              $${fees.totalClientPays.toFixed(2)}`);
-        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
-        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
+        console.log(`   ┌─────────────────────────────────────────────────────┐`);
+        console.log(`   │ BID AMOUNT:                  $${fees.bidAmount.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ CLIENT FEES:`);
+        console.log(`   │   Platform Fee (10%):       +$${fees.clientPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Reservation Fee:          +$${fees.reservationFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   HST (13%):                +$${fees.clientTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   YOU PAY:                   $${fees.totalClientPays.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ TASKER DEDUCTIONS:`);
+        console.log(`   │   Platform Fee (12%):       -$${fees.taskerPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Tax (13%):                -$${fees.taskerTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   TASKER RECEIVES:           $${fees.taskerPayout.toFixed(2).padStart(8)}`);
+        console.log(`   └─────────────────────────────────────────────────────┘`);
 
         res.status(200).json({
             success: true,
@@ -4618,12 +4431,27 @@ export const previewAcceptBidFees = async (req, res) => {
             taskTitle: quote.taskTitle,
             fees: {
                 bidAmount: fees.bidAmount,
+
+                // Client side
                 clientPlatformFee: fees.clientPlatformFee,
-                taxOnClientFee: fees.taxOnClientFee,
+                clientPlatformFeePercent: fees.clientPlatformFeePercent,
+                reservationFee: fees.reservationFee,
+                clientTax: fees.clientTax,
+                clientTaxPercent: fees.clientTaxPercent,
                 totalClientPays: fees.totalClientPays,
+
+                // Tasker side
                 taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPlatformFeePercent: fees.taskerPlatformFeePercent,
+                taskerTax: fees.taskerTax,
+                taskerTaxPercent: fees.taskerTaxPercent,
                 taskerPayout: fees.taskerPayout,
+
+                // Platform
                 platformTotal: fees.platformTotal,
+                applicationFee: fees.applicationFee,
+
+                feeStructure: 'client-10-5-13_tasker-12-13',
             }
         });
 
@@ -4633,9 +4461,14 @@ export const previewAcceptBidFees = async (req, res) => {
     }
 };
 
+/**
+ * Accept a bid on a quote
+ */
 export const acceptBid = async (req, res) => {
     console.log('=== ACCEPT BID REQUEST ===');
     console.log('req.body:', req.body);
+
+    let paymentIntent = null;
 
     try {
         const { quoteId, bidId } = req.params;
@@ -4660,7 +4493,7 @@ export const acceptBid = async (req, res) => {
         }
 
         const quote = await RequestQuote.findById(quoteId)
-            .populate('client', 'firstName lastName email phone stripeCustomerId defaultPaymentMethod address')
+            .populate('client', 'firstName lastName email phone stripeCustomerId defaultPaymentMethod defaultPaymentMethodId address')
             .populate('tasker', 'firstName lastName email phone stripeConnectAccountId stripeConnectStatus');
 
         if (!quote) {
@@ -4694,7 +4527,7 @@ export const acceptBid = async (req, res) => {
 
         // Get client payment info
         const client = quote.client;
-        const customerPaymentMethod = paymentMethodId || client.defaultPaymentMethod;
+        const customerPaymentMethod = paymentMethodId || client.defaultPaymentMethod || client.defaultPaymentMethodId;
 
         if (!client.stripeCustomerId) {
             return res.status(400).json({
@@ -4726,7 +4559,6 @@ export const acceptBid = async (req, res) => {
                     firstName: client.firstName || '',
                     lastName: client.lastName || '',
                 },
-                // Add address if available
                 ...(client.address && {
                     address: {
                         line1: client.address.street || client.address.line1 || '',
@@ -4740,24 +4572,33 @@ export const acceptBid = async (req, res) => {
             console.log('✅ Stripe customer updated with details');
         } catch (updateErr) {
             console.error('⚠️ Failed to update Stripe customer (non-blocking):', updateErr.message);
-            // Don't fail the transaction, just log
         }
 
-        // Calculate DOUBLE-SIDED fees
+        // ✅ Calculate DOUBLE-SIDED fees with new structure
         const bidAmountInCents = Math.round(bid.bidAmount * 100);
-        const fees = calculateQuoteFeesClient(bidAmountInCents);
+        const fees = calculateQuoteFees(bidAmountInCents);
 
         console.log('💰 DOUBLE-SIDED FEE Quote Payment Breakdown:');
-        console.log(`   Bid Amount:           $${fees.bidAmount.toFixed(2)}`);
-        console.log(`   Client Fee (15%):     $${fees.clientPlatformFee.toFixed(2)}`);
-        console.log(`   Tax (13% HST):        $${fees.taxOnClientFee.toFixed(2)}`);
-        console.log(`   TOTAL CLIENT PAYS:    $${fees.totalClientPays.toFixed(2)}`);
-        console.log(`   Tasker Fee (15%):    -$${fees.taskerPlatformFee.toFixed(2)}`);
-        console.log(`   TASKER RECEIVES:      $${fees.taskerPayout.toFixed(2)}`);
-        console.log(`   PLATFORM KEEPS:       $${fees.platformTotal.toFixed(2)}`);
-        console.log(`   Application Fee:      $${fees.applicationFee.toFixed(2)}`);
+        console.log(`   ┌─────────────────────────────────────────────────────┐`);
+        console.log(`   │ BID AMOUNT:                  $${fees.bidAmount.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ CLIENT SIDE (added to bid):`);
+        console.log(`   │   Platform Fee (10%):       +$${fees.clientPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Reservation Fee:          +$${fees.reservationFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   HST (13%):                +$${fees.clientTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   ─────────────────────────────────────────────────`);
+        console.log(`   │   TOTAL CLIENT PAYS:         $${fees.totalClientPays.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ TASKER SIDE (deducted from bid):`);
+        console.log(`   │   Platform Fee (12%):       -$${fees.taskerPlatformFee.toFixed(2).padStart(8)}`);
+        console.log(`   │   Tax (13%):                -$${fees.taskerTax.toFixed(2).padStart(8)}`);
+        console.log(`   │   ─────────────────────────────────────────────────`);
+        console.log(`   │   TASKER RECEIVES:           $${fees.taskerPayout.toFixed(2).padStart(8)}`);
+        console.log(`   ├─────────────────────────────────────────────────────┤`);
+        console.log(`   │ PLATFORM KEEPS:              $${fees.applicationFee.toFixed(2).padStart(8)}`);
+        console.log(`   └─────────────────────────────────────────────────────┘`);
 
-        // Minimum amount check
+        // Validation checks
         if (fees.totalClientPaysCents < 50) {
             return res.status(400).json({
                 message: 'Minimum payment amount is $0.50 CAD',
@@ -4765,11 +4606,17 @@ export const acceptBid = async (req, res) => {
             });
         }
 
+        if (fees.taskerPayoutCents < 0) {
+            return res.status(400).json({
+                message: 'Bid amount too small to cover fees',
+                code: 'BID_TOO_SMALL'
+            });
+        }
+
         // ✅ Create PaymentIntent with detailed description and receipt email
         const clientFullName = `${client.firstName} ${client.lastName}`.trim();
         const taskerFullName = `${quote.tasker.firstName} ${quote.tasker.lastName}`.trim();
 
-        let paymentIntent;
         try {
             paymentIntent = await stripe.paymentIntents.create({
                 amount: fees.totalClientPaysCents,
@@ -4778,13 +4625,10 @@ export const acceptBid = async (req, res) => {
                 payment_method: customerPaymentMethod,
                 capture_method: 'manual',
 
-                // ✅ Add detailed description
                 description: `Quote Payment: "${quote.taskTitle}" | Client: ${clientFullName} | Tasker: ${taskerFullName}`,
 
-                // ✅ Send receipt to client's email
                 receipt_email: client.email,
 
-                // ✅ Statement descriptor (appears on bank/card statement - max 22 chars)
                 statement_descriptor: 'TASKALLO QUOTE',
                 statement_descriptor_suffix: quote.taskTitle.substring(0, 10).toUpperCase(),
 
@@ -4794,7 +4638,6 @@ export const acceptBid = async (req, res) => {
                     destination: taskerStripeAccountId,
                 },
 
-                // ✅ Enhanced metadata
                 metadata: {
                     type: 'quote',
                     quoteId: quoteId,
@@ -4814,15 +4657,19 @@ export const acceptBid = async (req, res) => {
 
                     // Amounts
                     bidAmount: fees.bidAmount.toString(),
+                    clientPlatformFee: fees.clientPlatformFee.toString(),
+                    reservationFee: fees.reservationFee.toString(),
+                    clientTax: fees.clientTax.toString(),
                     totalClientPays: fees.totalClientPays.toString(),
+                    taskerPlatformFee: fees.taskerPlatformFee.toString(),
+                    taskerTax: fees.taskerTax.toString(),
                     taskerPayout: fees.taskerPayout.toString(),
-                    platformFee: fees.platformTotal.toString(),
+                    applicationFee: fees.applicationFee.toString(),
 
-                    feeStructure: 'double-sided-15-percent',
+                    feeStructure: 'client-10-5-13_tasker-12-13',
                     platform: 'taskallo',
                 },
 
-                // ✅ Shipping/billing details (optional - for better records)
                 shipping: {
                     name: clientFullName,
                     phone: client.phone || '',
@@ -4878,7 +4725,7 @@ export const acceptBid = async (req, res) => {
             });
         }
 
-        // Update bid status
+        // ✅ Update bid status
         bid.status = 'accepted';
         quote.bids.forEach(b => {
             if (b._id.toString() !== bidId) b.status = 'rejected';
@@ -4891,39 +4738,58 @@ export const acceptBid = async (req, res) => {
             tasker: quote.tasker._id,
             bidAmount: bid.bidAmount,
             bidDescription: bid.bidDescription,
+            estimatedDuration: bid.estimatedDuration,
             acceptedAt: new Date(),
         };
 
-        // Save COMPLETE payment info with fee breakdown
+        // ✅ Save COMPLETE payment info with new fee breakdown
         quote.payment = {
             paymentIntentId: paymentIntent.id,
             status: 'held',
             currency: 'cad',
             authorizedAt: new Date(),
-            feeStructure: 'double-sided-15-percent',
+            feeStructure: 'client-10-5-13_tasker-12-13',
 
+            // Bid amount
+            bidAmount: fees.bidAmount,
             bidAmountCents: fees.bidAmountCents,
+
+            // Client fees
+            clientPlatformFee: fees.clientPlatformFee,
             clientPlatformFeeCents: fees.clientPlatformFeeCents,
-            taxOnClientFeeCents: fees.taxOnClientFeeCents,
+            reservationFee: fees.reservationFee,
+            reservationFeeCents: fees.reservationFeeCents,
+            clientTax: fees.clientTax,
+            clientTaxCents: fees.clientTaxCents,
+            totalClientPays: fees.totalClientPays,
             totalClientPaysCents: fees.totalClientPaysCents,
+
+            // Tasker deductions
+            taskerPlatformFee: fees.taskerPlatformFee,
             taskerPlatformFeeCents: fees.taskerPlatformFeeCents,
+            taskerTax: fees.taskerTax,
+            taskerTaxCents: fees.taskerTaxCents,
+            taskerPayout: fees.taskerPayout,
             taskerPayoutCents: fees.taskerPayoutCents,
+
+            // Platform revenue
+            applicationFee: fees.applicationFee,
             applicationFeeCents: fees.applicationFeeCents,
 
+            // Legacy fields for backwards compatibility
             grossAmount: fees.totalClientPaysCents,
             platformFee: fees.applicationFeeCents,
-            taskerPayout: fees.taskerPayoutCents,
         };
 
         await quote.save();
         console.log('✅ Quote updated and saved');
 
-        // Notifications
+        // ✅ Notifications
         try {
             await createNotification(
                 quote.tasker._id,
                 "🎉 Your Bid Was Accepted!",
-                `${clientFullName} has accepted your bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Payment of $${fees.totalClientPays.toFixed(2)} is held. You'll receive $${fees.taskerPayout.toFixed(2)} when completed.`,
+                `${clientFullName} has accepted your bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Payment of $${fees.totalClientPays.toFixed(2)} is held. You'll receive $${fees.taskerPayout.toFixed(2)} (after 12% + 13%) when completed.`,
                 'quote-bid-accepted',
                 quoteId
             );
@@ -4936,7 +4802,7 @@ export const acceptBid = async (req, res) => {
             await createNotification(
                 clientId,
                 "✅ Bid Accepted - Payment Held",
-                `You've accepted ${taskerFullName}'s bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Total charged: $${fees.totalClientPays.toFixed(2)}. Payment is held until completion.`,
+                `You've accepted ${taskerFullName}'s bid of $${fees.bidAmount.toFixed(2)} for "${quote.taskTitle}". Total charged: $${fees.totalClientPays.toFixed(2)} (incl. 10% + $5 + 13% HST). Payment is held until completion.`,
                 'quote-bid-accepted-client',
                 quoteId
             );
@@ -4958,56 +4824,55 @@ export const acceptBid = async (req, res) => {
             quote: populatedQuote,
             paymentBreakdown: {
                 bidAmount: fees.bidAmount,
+
+                // Client side
                 clientPlatformFee: fees.clientPlatformFee,
-                taxOnClientFee: fees.taxOnClientFee,
+                clientPlatformFeePercent: fees.clientPlatformFeePercent,
+                reservationFee: fees.reservationFee,
+                clientTax: fees.clientTax,
+                clientTaxPercent: fees.clientTaxPercent,
                 totalClientPays: fees.totalClientPays,
+
+                // Tasker side
                 taskerPlatformFee: fees.taskerPlatformFee,
+                taskerPlatformFeePercent: fees.taskerPlatformFeePercent,
+                taskerTax: fees.taskerTax,
+                taskerTaxPercent: fees.taskerTaxPercent,
                 taskerPayout: fees.taskerPayout,
+
+                // Platform
                 platformTotal: fees.platformTotal,
                 applicationFee: fees.applicationFee,
-                currency: 'cad',
+
+                currency: 'CAD',
                 status: 'held',
+                feeStructure: 'client-10-5-13_tasker-12-13',
             }
         });
 
     } catch (error) {
         console.error('=== ERROR ACCEPTING BID ===');
         console.error('Error:', error);
+
+        // Cancel payment intent if created
+        if (paymentIntent?.id) {
+            try {
+                await stripe.paymentIntents.cancel(paymentIntent.id);
+                console.log('✅ PaymentIntent cancelled due to error');
+            } catch (cancelError) {
+                console.error('❌ Failed to cancel PaymentIntent:', cancelError);
+            }
+        }
+
         res.status(500).json({
             message: 'Server error while accepting bid',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
-// Helper function - make sure this is defined
-// const validateTaskerCanReceivePayments = async (taskerId) => {
-//     const tasker = await User.findById(taskerId);
 
-//     if (!tasker) {
-//         throw new Error('Tasker not found');
-//     }
-
-//     if (!tasker.stripeConnectAccountId) {
-//         throw new Error('Tasker has not set up payment receiving');
-//     }
-
-//     if (tasker.stripeConnectStatus !== 'active') {
-//         throw new Error('Tasker payment account is not active');
-//     }
-
-//     // Verify with Stripe
-//     const account = await stripe.accounts.retrieve(tasker.stripeConnectAccountId);
-
-//     if (!account.charges_enabled || !account.payouts_enabled) {
-//         throw new Error('Tasker payment account is not fully set up');
-//     }
-
-//     return tasker.stripeConnectAccountId;
-// };
-
-
-
-
+// Export the fee calculation function for use elsewhere
+export { calculateQuoteFees };
 
 
 
@@ -5466,6 +5331,5 @@ export const updateReqQuoteStatus = async (req, res) => {
 
 
 
-// ... (rest of existing code remains unchanged)
 
 export { createBooking, getAllBookings, getBookingsByUserId, updateBooking, deleteBooking, createRequestQuote, getAllRequestQuotes, getRequestQuotesByClientId, updateRequestQuote, deleteRequestQuote, };

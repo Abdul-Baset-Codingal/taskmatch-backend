@@ -1,201 +1,3 @@
-// import express from "express";
-// import bcrypt from "bcryptjs";
-// import jwt from "jsonwebtoken";
-// import User from "../models/user.js";
-// import cookieParser from "cookie-parser";
-// import { createNotification } from "./notificationHelper.js";
-
-
-// const app = express();
-
-// app.use(cookieParser());
-// const isProduction = process.env.NODE_ENV === "production";
-
-
-// const createToken = (id) => {
-//     return jwt.sign({ id }, process.env.JWT_SECRET, {
-//         expiresIn: "7d",
-//     });
-// };
-
-
-
-// const tokenCookieOptions = {
-//     httpOnly: true,
-//     secure: true,
-//     sameSite: "none",
-//     path: "/",
-//     maxAge: 7 * 24 * 60 * 60 * 1000,
-    
-// };
-
-// const statusCookieOptions = {
-//     httpOnly: true,
-//     secure: true,
-//     sameSite: "none",
-//     path: "/",
-//     maxAge: 7 * 24 * 60 * 60 * 1000,
-// };
-
-
-
-
-
-// export const signup = async (req, res) => {
-//     try {
-//         const {
-//             firstName,
-//             lastName,
-//             email,
-//             phone,
-//             postalCode,
-//             password,
-//             role,  // "client" or "tasker"
-//             dob,
-//             address: street,  // Renamed for clarity (assuming body has 'address' as street)
-//             city,
-//             province,
-//             language,
-//             about,
-//             travelDistance,
-//             idType,
-//             passportUrl,
-//             governmentIdFront,
-//             governmentIdBack,
-//             sin,
-//             issueDate,
-//             expiryDate,
-//             serviceCategories: categories,  // Renamed
-//             skills,
-//             experienceYears: yearsOfExperience,
-//             qualifications,
-//             services,
-//             certifications,
-//             backgroundCheckConsent,
-//             hasInsurance,
-//             availability,
-//             serviceAreas,
-//             profilePicture,
-//             accountHolder,
-//             accountNumber,
-//             routingNumber,
-//         } = req.body;
-
-//         console.log(req.body);
-
-//         if (!["client", "tasker"].includes(role)) {
-//             return res.status(400).json({ message: "Invalid role type" });
-//         }
-
-//         // Check for existing email
-//         const existingEmail = await User.findOne({ email });
-//         if (existingEmail) {
-//             return res.status(400).json({ message: "Email already exists" });
-//         }
-
-//         // Check for existing phone number
-//         const existingPhone = await User.findOne({ phone });
-//         if (existingPhone) {
-//             return res.status(400).json({ message: "Phone number already exists" });
-//         }
-
-//         const hashedPassword = await bcrypt.hash(password, 10);
-
-//         // Base user data
-//         const userData = {
-//             firstName,
-//             lastName,
-//             email,
-//             phone,
-//             postalCode,
-//             password: hashedPassword,
-//             roles: role === "tasker" ? ["client", "tasker"] : ["client"],
-//             currentRole: role,
-//         };
-
-//         if (role === "tasker") {
-//             // Validate required tasker fields (uncomment if needed)
-//             const requiredFields = {
-//                 about: about,
-//                 profilePicture: profilePicture,
-//                 dob: dob,
-//                 yearsOfExperience: yearsOfExperience,
-//                 categories: categories,
-//                 skills: skills,
-//                 qualifications: qualifications,
-//                 services: services,
-//                 certifications: certifications,
-//                 backgroundCheckConsent: backgroundCheckConsent,
-//                 hasInsurance: hasInsurance,
-//                 availability: availability,
-//                 serviceAreas: serviceAreas,
-//                 language: language,
-//                 travelDistance: travelDistance,
-//                 idType: idType,
-//                 sin: sin,
-//                 // Note: issueDate and expiryDate are optional but recommended
-//                 passportUrl: passportUrl,  // Conditional on idType
-//                 governmentIdFront: governmentIdFront,  // Conditional on idType
-//                 governmentIdBack: governmentIdBack,  // Conditional on idType
-//             };
-
-//             // Set tasker fields
-//             userData.dob = dob ? new Date(dob) : undefined;
-//             userData.address = {
-//                 street: street || "",
-//                 city: city || "",
-//                 province: province || "",
-//                 postalCode,
-//             };
-//             userData.language = language;
-//             userData.about = about;
-//             userData.travelDistance = travelDistance;
-//             userData.idType = idType;
-//             userData.sin = sin;
-//             userData.issueDate = issueDate ? new Date(issueDate) : undefined;
-//             userData.expiryDate = expiryDate ? new Date(expiryDate) : undefined;
-//             userData.categories = categories;
-//             userData.skills = skills;
-//             userData.yearsOfExperience = yearsOfExperience;
-//             userData.qualifications = qualifications;
-//             userData.services = services;
-//             userData.certifications = certifications;
-//             userData.backgroundCheckConsent = backgroundCheckConsent;
-//             userData.hasInsurance = hasInsurance;
-//             userData.availability = availability;
-//             userData.serviceAreas = serviceAreas;
-//             userData.profilePicture = profilePicture;
-
-//             // Set bank details (optional for taskers)
-//             userData.accountHolder = accountHolder;
-//             userData.accountNumber = accountNumber;
-//             userData.routingNumber = routingNumber;
-//         }
-
-//         const user = await User.create(userData);
-
-//         let message = "Signup successful";
-//         let loginCookies = true;
-
-//         let token = null;
-
-//         if (role === "tasker") {
-//             // For taskers, do not set login cookies; profile is under review by default
-//             message = "Tasker profile submitted successfully. Your profile is under review and will be approved by admin soon. You can login once approved.";
-//             loginCookies = false;
-//         } else {
-//             // For clients, set login cookies
-//             token = createToken(user._id);
-//             res.cookie("token", token, tokenCookieOptions);
-//             res.cookie("isLoggedIn", "true", statusCookieOptions);
-//         }
-
-//         res.status(201).json({ message, user: { ...user.toObject(), password: undefined }, token });
-//     } catch (err) {
-//         res.status(500).json({ message: "Signup failed", error: err.message });
-//     }
-// };
-
 
 import express from "express";
 import bcrypt from "bcryptjs";
@@ -206,6 +8,8 @@ import emailjs from "@emailjs/nodejs";
 import crypto from "crypto";
 import PasswordReset from "../models/PasswordReset.js"
 import User from "../models/user.js";
+import { logAuth, logActivity } from "../utils/activityLogger.js";
+
 const app = express();
 
 app.use(cookieParser());
@@ -681,10 +485,6 @@ export const resendResetOtp = async (req, res) => {
 
 
 
-
-
-
-
 // export const signup = async (req, res) => {
 //     try {
 //         const {
@@ -751,8 +551,6 @@ export const resendResetOtp = async (req, res) => {
 //             return res.status(400).json({ message: "Phone number already exists" });
 //         }
 
-//         const hashedPassword = await bcrypt.hash(password, 10);
-
 //         // Base user data
 //         const userData = {
 //             firstName,
@@ -760,7 +558,7 @@ export const resendResetOtp = async (req, res) => {
 //             email,
 //             phone,
 //             postalCode,
-//             password: hashedPassword,
+//             password, // Set plaintext password here; the pre-save hook will hash it
 //             roles: role === "tasker" ? ["client", "tasker"] : ["client"],
 //             currentRole: role,
 //         };
@@ -848,19 +646,99 @@ export const resendResetOtp = async (req, res) => {
 //     }
 // };
 
+
+
+// export const login = async (req, res) => {
+//     try {
+//         const { email, password } = req.body;
+
+//         console.log("emaill", email)
+//         console.log("password", password)
+
+//         const user = await User.findOne({ email });
+//         console.log(user)
+//         if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+//         // 🚫 Check if the user is blocked
+//         if (user.isBlocked) {
+//             return res.status(403).json({ message: "Your account has been blocked by the admin." });
+//         }
+
+//         // 🚫 Check if the user is a tasker under review
+//         // if (user.roles.includes("tasker") && !user.taskerProfileCheck) {
+//         //     return res.status(403).json({ message: "Your tasker profile is under review. Please wait for admin approval." });
+//         // }
+
+//         console.log(password, "passworddddd")
+//         console.log(user.password, "user passsss")
+//         const match = await bcrypt.compare(password, user.password);
+//         console.log(match)
+//         if (!match) return res.status(400).json({ message: "Invalid credentials" });
+
+//         const token = createToken(user._id);
+
+//         res.cookie("token", token, tokenCookieOptions);
+//         res.cookie("isLoggedIn", "true", statusCookieOptions);
+
+//         res.status(200).json({ message: "Login successful", user, token });
+//     } catch (err) {
+//         res.status(500).json({ message: "Login failed", error: err.message });
+//     }
+// };
+
+
+
+
+// export const logout = (req, res) => {
+//     console.log("=== LOGOUT DEBUG START ===");
+//     console.log("1. All cookies received:", req.cookies);
+//     console.log("2. Token cookie exists:", !!req.cookies?.token);
+//     console.log("3. isLoggedIn cookie exists:", !!req.cookies?.isLoggedIn);
+//     console.log("4. Request headers:", req.headers);
+//     console.log("5. Origin:", req.headers.origin);
+
+//     const clearOptions = {
+//         httpOnly: true,
+//         secure: true,
+//         sameSite: "none",
+//         path: "/",
+//     };
+
+//     console.log("6. Clear options:", clearOptions);
+
+//     res.clearCookie("token", clearOptions);
+//     res.clearCookie("isLoggedIn", clearOptions);
+
+//     // Also try setting expired cookies as backup
+//     res.cookie("token", "", { ...clearOptions, maxAge: 0 });
+//     res.cookie("isLoggedIn", "", { ...clearOptions, maxAge: 0 });
+
+//     console.log("=== LOGOUT DEBUG END ===");
+
+//     return res.status(200).json({
+//         message: "Logout successful",
+//         debug: {
+//             cookiesReceived: Object.keys(req.cookies || {}),
+//             clearedAt: new Date().toISOString()
+//         }
+//     });
+// };
+
+
+
 export const signup = async (req, res) => {
+    const { email, role } = req.body;
+
     try {
         const {
             firstName,
             lastName,
-            email,
             phone,
             postalCode,
             password,
-            role,  // "client" or "tasker"
-            otp,   // Add OTP from request body
+            otp,
             dob,
-            address: street,  // Renamed for clarity (assuming body has 'address' as street)
+            address: street,
             city,
             province,
             language,
@@ -873,7 +751,7 @@ export const signup = async (req, res) => {
             sin,
             issueDate,
             expiryDate,
-            serviceCategories: categories,  // Renamed
+            serviceCategories: categories,
             skills,
             experienceYears: yearsOfExperience,
             qualifications,
@@ -894,23 +772,63 @@ export const signup = async (req, res) => {
         // Verify OTP first
         const stored = otps.get(email);
         if (!stored || stored.otp !== otp || Date.now() > stored.expires) {
+            // Log failed signup - OTP issue
+            await logAuth({
+                action: "SIGNUP_FAILED",
+                req,
+                email,
+                status: "failure",
+                errorMessage: "Invalid or expired OTP",
+                metadata: { role, attemptedEmail: email },
+            });
+
             return res.status(400).json({ message: "Invalid or expired OTP" });
         }
-        otps.delete(email); // Clear after use
+        otps.delete(email);
 
         if (!["client", "tasker"].includes(role)) {
+            // Log failed signup - Invalid role
+            await logAuth({
+                action: "SIGNUP_FAILED",
+                req,
+                email,
+                status: "failure",
+                errorMessage: "Invalid role type",
+                metadata: { role, attemptedEmail: email },
+            });
+
             return res.status(400).json({ message: "Invalid role type" });
         }
 
         // Check for existing email
         const existingEmail = await User.findOne({ email });
         if (existingEmail) {
+            // Log failed signup - Email exists
+            await logAuth({
+                action: "SIGNUP_FAILED",
+                req,
+                email,
+                status: "failure",
+                errorMessage: "Email already exists",
+                metadata: { role },
+            });
+
             return res.status(400).json({ message: "Email already exists" });
         }
 
         // Check for existing phone number
         const existingPhone = await User.findOne({ phone });
         if (existingPhone) {
+            // Log failed signup - Phone exists
+            await logAuth({
+                action: "SIGNUP_FAILED",
+                req,
+                email,
+                status: "failure",
+                errorMessage: "Phone number already exists",
+                metadata: { role, phone },
+            });
+
             return res.status(400).json({ message: "Phone number already exists" });
         }
 
@@ -921,37 +839,12 @@ export const signup = async (req, res) => {
             email,
             phone,
             postalCode,
-            password, // Set plaintext password here; the pre-save hook will hash it
+            password,
             roles: role === "tasker" ? ["client", "tasker"] : ["client"],
             currentRole: role,
         };
 
         if (role === "tasker") {
-            // Validate required tasker fields (uncomment if needed)
-            const requiredFields = {
-                about: about,
-                profilePicture: profilePicture,
-                dob: dob,
-                yearsOfExperience: yearsOfExperience,
-                categories: categories,
-                skills: skills,
-                qualifications: qualifications,
-                services: services,
-                certifications: certifications,
-                backgroundCheckConsent: backgroundCheckConsent,
-                hasInsurance: hasInsurance,
-                availability: availability,
-                serviceAreas: serviceAreas,
-                language: language,
-                travelDistance: travelDistance,
-                idType: idType,
-                sin: sin,
-                // Note: issueDate and expiryDate are optional but recommended
-                passportUrl: passportUrl,  // Conditional on idType
-                governmentIdFront: governmentIdFront,  // Conditional on idType
-                governmentIdBack: governmentIdBack,  // Conditional on idType
-            };
-
             // Set tasker fields
             userData.dob = dob ? new Date(dob) : undefined;
             userData.address = {
@@ -978,8 +871,6 @@ export const signup = async (req, res) => {
             userData.availability = availability;
             userData.serviceAreas = serviceAreas;
             userData.profilePicture = profilePicture;
-
-            // Set bank details (optional for taskers)
             userData.accountHolder = accountHolder;
             userData.accountNumber = accountNumber;
             userData.routingNumber = routingNumber;
@@ -987,93 +878,158 @@ export const signup = async (req, res) => {
 
         const user = await User.create(userData);
 
+        // ✅ Log successful signup
+        await logAuth({
+            action: "SIGNUP",
+            user,
+            req,
+            status: "success",
+            metadata: {
+                role: user.currentRole,
+                phone: user.phone,
+                postalCode: user.postalCode,
+                registrationType: role === "tasker" ? "tasker_registration" : "client_registration",
+                categories: role === "tasker" ? categories : undefined,
+            },
+        });
+
         let message = "Signup successful";
         let loginCookies = true;
-
         let token = null;
 
         if (role === "tasker") {
-            // For taskers, do not set login cookies; profile is under review by default
-            message = "Tasker profile submitted successfully. Your profile is under review and will be approved by admin soon. You can login once approved.";
+            message =
+                "Tasker profile submitted successfully. Your profile is under review and will be approved by admin soon. You can login once approved.";
             loginCookies = false;
         } else {
-            // For clients, set login cookies
             token = createToken(user._id);
             res.cookie("token", token, tokenCookieOptions);
             res.cookie("isLoggedIn", "true", statusCookieOptions);
+
+            // ✅ Log auto-login for client
+            await logAuth({
+                action: "LOGIN",
+                user,
+                req,
+                status: "success",
+                metadata: {
+                    loginType: "auto_after_signup",
+                },
+            });
         }
 
-        res.status(201).json({ message, user: { ...user.toObject(), password: undefined }, token });
+        res.status(201).json({
+            message,
+            user: { ...user.toObject(), password: undefined },
+            token,
+        });
     } catch (err) {
+        // Log failed signup - Server error
+        await logAuth({
+            action: "SIGNUP_FAILED",
+            req,
+            email,
+            status: "failure",
+            errorMessage: err.message,
+            metadata: { role },
+        });
+
         res.status(500).json({ message: "Signup failed", error: err.message });
     }
 };
 
-
-
 export const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+    const { email, password } = req.body;
 
-        console.log("emaill", email)
-        console.log("password", password)
+    try {
+        console.log("email", email);
+        console.log("password", password);
 
         const user = await User.findOne({ email });
-        console.log(user)
-        if (!user) return res.status(400).json({ message: "Invalid credentials" });
+        console.log(user);
+
+        if (!user) {
+            // ✅ Log failed login - User not found
+            await logAuth({
+                action: "LOGIN_FAILED",
+                req,
+                email,
+                status: "failure",
+                errorMessage: "User not found",
+            });
+
+            return res.status(400).json({ message: "Invalid credentials" });
+        }
 
         // 🚫 Check if the user is blocked
         if (user.isBlocked) {
-            return res.status(403).json({ message: "Your account has been blocked by the admin." });
+            // ✅ Log failed login - Blocked user
+            await logAuth({
+                action: "LOGIN_FAILED",
+                user,
+                req,
+                status: "failure",
+                errorMessage: "Account blocked by admin",
+            });
+
+            return res.status(403).json({
+                message: "Your account has been blocked by the admin.",
+            });
         }
 
-        // 🚫 Check if the user is a tasker under review
-        // if (user.roles.includes("tasker") && !user.taskerProfileCheck) {
-        //     return res.status(403).json({ message: "Your tasker profile is under review. Please wait for admin approval." });
-        // }
+        console.log(password, "passworddddd");
+        console.log(user.password, "user passsss");
 
-        console.log(password, "passworddddd")
-        console.log(user.password, "user passsss")
         const match = await bcrypt.compare(password, user.password);
-        console.log(match)
-        if (!match) return res.status(400).json({ message: "Invalid credentials" });
+        console.log(match);
+
+        if (!match) {
+            // ✅ Log failed login - Wrong password
+            await logAuth({
+                action: "LOGIN_FAILED",
+                user,
+                req,
+                status: "failure",
+                errorMessage: "Invalid password",
+            });
+
+            return res.status(400).json({ message: "Invalid credentials" });
+        }
 
         const token = createToken(user._id);
 
         res.cookie("token", token, tokenCookieOptions);
         res.cookie("isLoggedIn", "true", statusCookieOptions);
 
+        // ✅ Log successful login
+        await logAuth({
+            action: "LOGIN",
+            user,
+            req,
+            status: "success",
+            metadata: {
+                loginMethod: "email_password",
+                currentRole: user.currentRole,
+                roles: user.roles,
+            },
+        });
+
         res.status(200).json({ message: "Login successful", user, token });
     } catch (err) {
+        // ✅ Log failed login - Server error
+        await logAuth({
+            action: "LOGIN_FAILED",
+            req,
+            email,
+            status: "failure",
+            errorMessage: err.message,
+        });
+
         res.status(500).json({ message: "Login failed", error: err.message });
     }
 };
 
-// export const logout = (req, res) => {
-//     console.log("Logout called, cookies before clear:", req.cookies);
-
-//     const isProduction = process.env.NODE_ENV === "production";
-
-//     res.clearCookie("token", {
-//         httpOnly: true,
-//         secure: isProduction,
-//         sameSite: isProduction ? "none" : "lax",
-//         path: "/",
-//     });
-
-//     res.clearCookie("isLoggedIn", {
-//         httpOnly: true,
-//         secure: isProduction,
-//         sameSite: isProduction ? "none" : "lax",
-//         path: "/",
-//     });
-
-//     console.log("Cookies cleared");
-//     return res.status(200).json({ message: "Logout successful" });
-// };
-
-
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
     console.log("=== LOGOUT DEBUG START ===");
     console.log("1. All cookies received:", req.cookies);
     console.log("2. Token cookie exists:", !!req.cookies?.token);
@@ -1081,32 +1037,77 @@ export const logout = (req, res) => {
     console.log("4. Request headers:", req.headers);
     console.log("5. Origin:", req.headers.origin);
 
-    const clearOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: "none",
-        path: "/",
-    };
+    try {
+        // Get user info before clearing cookies (if using auth middleware)
+        const user = req.user || null; // Assuming you have auth middleware that sets req.user
 
-    console.log("6. Clear options:", clearOptions);
+        const clearOptions = {
+            httpOnly: true,
+            secure: true,
+            sameSite: "none",
+            path: "/",
+        };
 
-    res.clearCookie("token", clearOptions);
-    res.clearCookie("isLoggedIn", clearOptions);
+        console.log("6. Clear options:", clearOptions);
 
-    // Also try setting expired cookies as backup
-    res.cookie("token", "", { ...clearOptions, maxAge: 0 });
-    res.cookie("isLoggedIn", "", { ...clearOptions, maxAge: 0 });
+        res.clearCookie("token", clearOptions);
+        res.clearCookie("isLoggedIn", clearOptions);
 
-    console.log("=== LOGOUT DEBUG END ===");
+        // Also try setting expired cookies as backup
+        res.cookie("token", "", { ...clearOptions, maxAge: 0 });
+        res.cookie("isLoggedIn", "", { ...clearOptions, maxAge: 0 });
 
-    return res.status(200).json({
-        message: "Logout successful",
-        debug: {
-            cookiesReceived: Object.keys(req.cookies || {}),
-            clearedAt: new Date().toISOString()
+        // ✅ Log successful logout
+        if (user) {
+            await logAuth({
+                action: "LOGOUT",
+                user,
+                req,
+                status: "success",
+                metadata: {
+                    logoutMethod: "manual",
+                },
+            });
+        } else {
+            // If no user in req, still log the logout attempt
+            await logActivity({
+                action: "LOGOUT",
+                description: "User logged out (user details not available in request)",
+                req,
+                status: "success",
+                module: "auth",
+            });
         }
-    });
+
+        console.log("=== LOGOUT DEBUG END ===");
+
+        return res.status(200).json({
+            message: "Logout successful",
+            debug: {
+                cookiesReceived: Object.keys(req.cookies || {}),
+                clearedAt: new Date().toISOString(),
+            },
+        });
+    } catch (err) {
+        console.error("Logout error:", err);
+
+        // Still try to clear cookies even if logging fails
+        const clearOptions = {
+            httpOnly: true,
+            secure: true,
+            sameSite: "none",
+            path: "/",
+        };
+        res.clearCookie("token", clearOptions);
+        res.clearCookie("isLoggedIn", clearOptions);
+
+        return res.status(200).json({
+            message: "Logout successful",
+        });
+    }
 };
+
+
 
 // Add this to your auth controller file
 export const checkEmailExists = async (req, res) => {
@@ -1205,6 +1206,717 @@ export const checkPhoneExists = async (req, res) => {
     }
 };
 
+
+export const getAdminUsers = async (req, res) => {
+    try {
+        const {
+            // Pagination
+            page = 1,
+            limit = 10,
+
+            // Role filter: 'client', 'tasker', 'both', 'all'
+            roleType = 'all',
+
+            // Search
+            search = '',
+
+            // Status filters
+            status = '',  // active, inactive, suspended, banned
+            isBlocked = '',
+
+            // Verification filters
+            emailVerified = '',
+            phoneVerified = '',
+            identityVerified = '',
+
+            // Tasker specific filters
+            taskerStatus = '',  // not_applied, under_review, approved, rejected
+            stripeConnectStatus = '',
+
+            // Location filters
+            city = '',
+            province = '',
+            country = '',
+
+            // Marketplace stats filters
+            minTotalSpent = '',
+            maxTotalSpent = '',
+            minTasksCompleted = '',
+            maxTasksCompleted = '',
+            minBookingsCompleted = '',
+            maxBookingsCompleted = '',
+            minTotalEarnings = '',
+            maxTotalEarnings = '',
+
+            // Rating filters
+            minRating = '',
+            maxRating = '',
+
+            // Date filters
+            createdFrom = '',
+            createdTo = '',
+            lastActiveFrom = '',
+            lastActiveTo = '',
+
+            // Sorting
+            sortBy = 'createdAt',
+            sortOrder = 'desc',
+
+            // Category filter (for taskers)
+            category = '',
+        } = req.query;
+
+        // Build query object
+        const query = {};
+
+        // ==================== ROLE TYPE FILTERING ====================
+        switch (roleType) {
+            case 'client':
+                // Users who are ONLY clients (not taskers)
+                query.roles = { $eq: ['client'] };
+                break;
+            case 'tasker':
+                // Users who have tasker role (approved taskers only)
+                query.roles = { $in: ['tasker'] };
+                query.taskerStatus = 'approved';
+                break;
+            case 'both':
+                // Users who have BOTH client and tasker roles
+                query.roles = { $all: ['client', 'tasker'] };
+                query.taskerStatus = 'approved';
+                break;
+            case 'pending':
+                // Users with pending tasker verification
+                query.taskerStatus = 'under_review';
+                break;
+            case 'all':
+            default:
+                // All users except admins (or include admins if needed)
+                query.roles = { $nin: ['admin'] };
+                break;
+        }
+
+        // ==================== SEARCH ====================
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { firstName: searchRegex },
+                { lastName: searchRegex },
+                { email: searchRegex },
+                { phone: searchRegex },
+                { 'address.city': searchRegex },
+            ];
+        }
+
+        // ==================== STATUS FILTERS ====================
+        if (status) {
+            switch (status) {
+                case 'active':
+                    query.isBlocked = false;
+                    query.isEmailVerified = true;
+                    break;
+                case 'inactive':
+                    query.isBlocked = false;
+                    query.isEmailVerified = false;
+                    break;
+                case 'suspended':
+                    query.isBlocked = true;
+                    // You might want to add a suspendedAt field to differentiate
+                    break;
+                case 'banned':
+                    query.isBlocked = true;
+                    // You might want to add a bannedAt field to differentiate
+                    break;
+            }
+        }
+
+        if (isBlocked !== '') {
+            query.isBlocked = isBlocked === 'true';
+        }
+
+        // ==================== VERIFICATION FILTERS ====================
+        if (emailVerified !== '') {
+            query.isEmailVerified = emailVerified === 'true';
+        }
+
+        if (phoneVerified !== '') {
+            query.isPhoneVerified = phoneVerified === 'true';
+        }
+
+        if (identityVerified !== '') {
+            query['idVerification.verified'] = identityVerified === 'true';
+        }
+
+        // ==================== TASKER STATUS FILTER ====================
+        if (taskerStatus && roleType !== 'pending') {
+            query.taskerStatus = taskerStatus;
+        }
+
+        if (stripeConnectStatus) {
+            query.stripeConnectStatus = stripeConnectStatus;
+        }
+
+        // ==================== LOCATION FILTERS ====================
+        if (city) {
+            query['address.city'] = new RegExp(city, 'i');
+        }
+
+        if (province) {
+            query['address.province'] = new RegExp(province, 'i');
+        }
+
+        if (country) {
+            query['address.country'] = new RegExp(country, 'i');
+        }
+
+        // ==================== MARKETPLACE STATS FILTERS ====================
+        // For clients - total spent (you'll need to aggregate from bookings/tasks)
+        // For now, using stats field
+        if (minTasksCompleted) {
+            query['stats.tasksCompleted'] = {
+                ...query['stats.tasksCompleted'],
+                $gte: parseInt(minTasksCompleted)
+            };
+        }
+
+        if (maxTasksCompleted) {
+            query['stats.tasksCompleted'] = {
+                ...query['stats.tasksCompleted'],
+                $lte: parseInt(maxTasksCompleted)
+            };
+        }
+
+        if (minBookingsCompleted) {
+            query['stats.bookingsCompleted'] = {
+                ...query['stats.bookingsCompleted'],
+                $gte: parseInt(minBookingsCompleted)
+            };
+        }
+
+        if (maxBookingsCompleted) {
+            query['stats.bookingsCompleted'] = {
+                ...query['stats.bookingsCompleted'],
+                $lte: parseInt(maxBookingsCompleted)
+            };
+        }
+
+        if (minTotalEarnings) {
+            query['stats.totalEarnings'] = {
+                ...query['stats.totalEarnings'],
+                $gte: parseInt(minTotalEarnings)
+            };
+        }
+
+        if (maxTotalEarnings) {
+            query['stats.totalEarnings'] = {
+                ...query['stats.totalEarnings'],
+                $lte: parseInt(maxTotalEarnings)
+            };
+        }
+
+        // ==================== RATING FILTERS ====================
+        if (minRating) {
+            query.rating = { ...query.rating, $gte: parseFloat(minRating) };
+        }
+
+        if (maxRating) {
+            query.rating = { ...query.rating, $lte: parseFloat(maxRating) };
+        }
+
+        // ==================== DATE FILTERS ====================
+        if (createdFrom || createdTo) {
+            query.createdAt = {};
+            if (createdFrom) {
+                query.createdAt.$gte = new Date(createdFrom);
+            }
+            if (createdTo) {
+                query.createdAt.$lte = new Date(createdTo);
+            }
+        }
+
+        if (lastActiveFrom || lastActiveTo) {
+            query.updatedAt = {};
+            if (lastActiveFrom) {
+                query.updatedAt.$gte = new Date(lastActiveFrom);
+            }
+            if (lastActiveTo) {
+                query.updatedAt.$lte = new Date(lastActiveTo);
+            }
+        }
+
+        // ==================== CATEGORY FILTER (for taskers) ====================
+        if (category) {
+            query.categories = { $in: [category] };
+        }
+
+        // ==================== SORTING ====================
+        const sortOptions = {};
+        sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+        // ==================== PAGINATION ====================
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        // ==================== EXECUTE QUERY ====================
+        const [users, totalCount] = await Promise.all([
+            User.find(query)
+                .select('-password -__v')
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(limitNum)
+                .lean(),
+            User.countDocuments(query),
+        ]);
+
+        // ==================== FORMAT RESPONSE ====================
+        const formattedUsers = users.map(user => ({
+            id: user._id,
+            name: `${user.firstName} ${user.lastName}`,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+            profilePicture: user.profilePicture,
+            roles: user.roles,
+            currentRole: user.currentRole,
+            status: user.isBlocked ? 'suspended' : (user.isEmailVerified ? 'active' : 'inactive'),
+            verification: {
+                email: user.isEmailVerified || false,
+                phone: user.isPhoneVerified || false,
+                identity: user.idVerification?.verified || false,
+                address: !!user.address?.city,
+            },
+            location: {
+                city: user.address?.city || '',
+                province: user.address?.province || '',
+                country: user.address?.country || 'CA',
+            },
+            taskerStatus: user.taskerStatus,
+            stripeConnectStatus: user.stripeConnectStatus,
+            rating: user.rating || 0,
+            reviewCount: user.reviewCount || 0,
+            stats: {
+                tasksCompleted: user.stats?.tasksCompleted || 0,
+                bookingsCompleted: user.stats?.bookingsCompleted || 0,
+                totalEarnings: user.stats?.totalEarnings || 0,
+                responseRate: user.stats?.responseRate || 100,
+                completionRate: user.stats?.completionRate || 100,
+            },
+            categories: user.categories || [],
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+            lastActive: user.updatedAt, // or create a separate lastActive field
+        }));
+
+        // ==================== CALCULATE STATS ====================
+        const stats = await calculateUserStats(roleType);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                users: formattedUsers,
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: Math.ceil(totalCount / limitNum),
+                    totalCount,
+                    limit: limitNum,
+                    hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
+                    hasPrevPage: pageNum > 1,
+                },
+                stats,
+            },
+        });
+
+    } catch (error) {
+        console.error('Get admin users error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch users',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * Calculate user statistics based on role type
+ */
+const calculateUserStats = async (roleType) => {
+    const baseQuery = { roles: { $nin: ['admin'] } };
+
+    let roleQuery = {};
+    switch (roleType) {
+        case 'client':
+            roleQuery = { roles: { $eq: ['client'] } };
+            break;
+        case 'tasker':
+            roleQuery = { roles: { $in: ['tasker'] }, taskerStatus: 'approved' };
+            break;
+        case 'both':
+            roleQuery = { roles: { $all: ['client', 'tasker'] }, taskerStatus: 'approved' };
+            break;
+        case 'pending':
+            roleQuery = { taskerStatus: 'under_review' };
+            break;
+        default:
+            roleQuery = baseQuery;
+    }
+
+    const [
+        totalCount,
+        activeCount,
+        blockedCount,
+        verifiedCount,
+    ] = await Promise.all([
+        User.countDocuments(roleQuery),
+        User.countDocuments({ ...roleQuery, isBlocked: false, isEmailVerified: true }),
+        User.countDocuments({ ...roleQuery, isBlocked: true }),
+        User.countDocuments({ ...roleQuery, isEmailVerified: true, isPhoneVerified: true }),
+    ]);
+
+    // Get aggregate stats
+    const aggregateStats = await User.aggregate([
+        { $match: roleQuery },
+        {
+            $group: {
+                _id: null,
+                totalEarnings: { $sum: '$stats.totalEarnings' },
+                avgRating: { $avg: '$rating' },
+                totalTasksCompleted: { $sum: '$stats.tasksCompleted' },
+                totalBookingsCompleted: { $sum: '$stats.bookingsCompleted' },
+            },
+        },
+    ]);
+
+    return {
+        total: totalCount,
+        active: activeCount,
+        blocked: blockedCount,
+        verified: verifiedCount,
+        totalEarnings: aggregateStats[0]?.totalEarnings || 0,
+        avgRating: aggregateStats[0]?.avgRating?.toFixed(1) || 0,
+        totalTasksCompleted: aggregateStats[0]?.totalTasksCompleted || 0,
+        totalBookingsCompleted: aggregateStats[0]?.totalBookingsCompleted || 0,
+    };
+};
+
+/**
+ * Get single user details for admin
+ * @route GET /api/auth/admin/users/:id
+ * @access Admin only
+ */
+export const getAdminUserById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const user = await User.findById(id)
+            .select('-password -__v')
+            .lean();
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+            });
+        }
+
+        // Get additional statistics (tasks, bookings, etc.)
+        // You'll need to import your Task and Booking models
+        // const tasksPosted = await Task.countDocuments({ postedBy: id });
+        // const tasksCompleted = await Task.countDocuments({ assignedTo: id, status: 'completed' });
+        // const bookings = await Booking.find({ $or: [{ client: id }, { tasker: id }] });
+
+        const formattedUser = {
+            id: user._id,
+            name: `${user.firstName} ${user.lastName}`,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+            profilePicture: user.profilePicture,
+            about: user.about,
+            dob: user.dob,
+            language: user.language,
+            roles: user.roles,
+            currentRole: user.currentRole,
+            status: user.isBlocked ? 'suspended' : (user.isEmailVerified ? 'active' : 'inactive'),
+            verification: {
+                email: user.isEmailVerified || false,
+                phone: user.isPhoneVerified || false,
+                identity: user.idVerification?.verified || false,
+                address: !!user.address?.city,
+            },
+            address: user.address,
+            taskerInfo: user.roles.includes('tasker') ? {
+                status: user.taskerStatus,
+                appliedAt: user.taskerAppliedAt,
+                approvedAt: user.taskerApprovedAt,
+                rejectedAt: user.taskerRejectedAt,
+                rejectionReason: user.taskerRejectionReason,
+                profileComplete: user.taskerProfileComplete,
+                categories: user.categories,
+                skills: user.skills,
+                services: user.services,
+                availability: user.availability,
+                travelDistance: user.travelDistance,
+                serviceAreas: user.serviceAreas,
+                yearsOfExperience: user.yearsOfExperience,
+                qualifications: user.qualifications,
+                certifications: user.certifications,
+                pricingType: user.pricingType,
+                chargesGST: user.chargesGST,
+            } : null,
+            paymentInfo: {
+                stripeCustomerId: user.stripeCustomerId,
+                stripeConnectAccountId: user.stripeConnectAccountId,
+                stripeConnectStatus: user.stripeConnectStatus,
+                stripeConnectDetails: user.stripeConnectDetails,
+            },
+            idVerification: user.idVerification,
+            backgroundCheck: user.backgroundCheck,
+            insurance: user.insurance,
+            rating: user.rating || 0,
+            reviewCount: user.reviewCount || 0,
+            reviews: user.reviews || [],
+            stats: user.stats,
+            agreements: user.agreements,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+        };
+
+        res.status(200).json({
+            success: true,
+            data: formattedUser,
+        });
+
+    } catch (error) {
+        console.error('Get admin user by ID error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * Update user status (block/unblock/suspend)
+ * @route PATCH /api/auth/admin/users/:id/status
+ * @access Admin only
+ */
+export const updateUserStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action, reason } = req.body;
+
+        const user = await User.findById(id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+            });
+        }
+
+        switch (action) {
+            case 'block':
+            case 'suspend':
+                user.isBlocked = true;
+                user.blockedAt = new Date();
+                user.blockedReason = reason;
+                break;
+            case 'unblock':
+            case 'activate':
+                user.isBlocked = false;
+                user.blockedAt = null;
+                user.blockedReason = null;
+                break;
+            case 'ban':
+                user.isBlocked = true;
+                user.isBanned = true;
+                user.bannedAt = new Date();
+                user.bannedReason = reason;
+                break;
+            default:
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid action',
+                });
+        }
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: `User ${action}ed successfully`,
+            data: {
+                id: user._id,
+                isBlocked: user.isBlocked,
+                status: user.isBlocked ? 'suspended' : 'active',
+            },
+        });
+
+    } catch (error) {
+        console.error('Update user status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update user status',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * Bulk update users
+ * @route PATCH /api/auth/admin/users/bulk
+ * @access Admin only
+ */
+export const bulkUpdateUsers = async (req, res) => {
+    try {
+        const { userIds, action, reason } = req.body;
+
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'User IDs are required',
+            });
+        }
+
+        let updateData = {};
+
+        switch (action) {
+            case 'block':
+            case 'suspend':
+                updateData = {
+                    isBlocked: true,
+                    blockedAt: new Date(),
+                    blockedReason: reason,
+                };
+                break;
+            case 'unblock':
+            case 'activate':
+                updateData = {
+                    isBlocked: false,
+                    blockedAt: null,
+                    blockedReason: null,
+                };
+                break;
+            case 'delete':
+                const deleteResult = await User.deleteMany({ _id: { $in: userIds } });
+                return res.status(200).json({
+                    success: true,
+                    message: `${deleteResult.deletedCount} users deleted successfully`,
+                });
+            default:
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid action',
+                });
+        }
+
+        const result = await User.updateMany(
+            { _id: { $in: userIds } },
+            { $set: updateData }
+        );
+
+        res.status(200).json({
+            success: true,
+            message: `${result.modifiedCount} users updated successfully`,
+            data: {
+                modifiedCount: result.modifiedCount,
+                action,
+            },
+        });
+
+    } catch (error) {
+        console.error('Bulk update users error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update users',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * Export users to CSV
+ * @route GET /api/auth/admin/users/export
+ * @access Admin only
+ */
+export const exportUsers = async (req, res) => {
+    try {
+        const { roleType = 'all', format = 'json' } = req.query;
+
+        let query = { roles: { $nin: ['admin'] } };
+
+        switch (roleType) {
+            case 'client':
+                query = { roles: { $eq: ['client'] } };
+                break;
+            case 'tasker':
+                query = { roles: { $in: ['tasker'] }, taskerStatus: 'approved' };
+                break;
+            case 'both':
+                query = { roles: { $all: ['client', 'tasker'] }, taskerStatus: 'approved' };
+                break;
+            case 'pending':
+                query = { taskerStatus: 'under_review' };
+                break;
+        }
+
+        const users = await User.find(query)
+            .select('firstName lastName email phone address roles currentRole isBlocked isEmailVerified isPhoneVerified rating stats createdAt')
+            .lean();
+
+        if (format === 'csv') {
+            // Generate CSV
+            const headers = [
+                'ID', 'Name', 'Email', 'Phone', 'City', 'Province',
+                'Roles', 'Status', 'Email Verified', 'Phone Verified',
+                'Rating', 'Tasks Completed', 'Created At'
+            ];
+
+            const csvRows = users.map(user => [
+                user._id,
+                `${user.firstName} ${user.lastName}`,
+                user.email,
+                user.phone,
+                user.address?.city || '',
+                user.address?.province || '',
+                user.roles.join(', '),
+                user.isBlocked ? 'Blocked' : 'Active',
+                user.isEmailVerified ? 'Yes' : 'No',
+                user.isPhoneVerified ? 'Yes' : 'No',
+                user.rating || 0,
+                user.stats?.tasksCompleted || 0,
+                user.createdAt,
+            ]);
+
+            const csvContent = [
+                headers.join(','),
+                ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))
+            ].join('\n');
+
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename=users-${roleType}-${Date.now()}.csv`);
+            return res.send(csvContent);
+        }
+
+        res.status(200).json({
+            success: true,
+            data: users,
+            count: users.length,
+        });
+
+    } catch (error) {
+        console.error('Export users error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to export users',
+            error: error.message,
+        });
+    }
+};
 
 
 export const switchRole = async (req, res) => {
@@ -1739,84 +2451,6 @@ const computeMissingFields = (user) => {
 
 
 
-
-//     console.log('Request body:', req.body);
-//     console.log('Authenticated user ID:', req.user?._id);
-//     console.log('Target user ID:', req.params.id);
-//     try {
-//         const userId = req.params.id;
-
-//         // Find the user
-//         const user = await User.findById(userId);
-//         if (!user) {
-//             console.log('User not found for ID:', userId);
-//             return res.status(404).json({ error: 'User not found' });
-//         }
-
-//         // Validate email uniqueness if provided
-//         const { email, password, rating, reviewCount, ...otherData } = req.body;
-//         if (email && email !== user.email) {
-//             const existingEmail = await User.findOne({ email });
-//             if (existingEmail) {
-//                 console.log('Email already in use:', email);
-//                 return res.status(400).json({ error: 'Email already in use' });
-//             }
-//         }
-
-//         // Prepare update data, explicitly excluding rating and reviewCount
-//         const updateData = { ...otherData };
-//         if (email) updateData.email = email;
-//         if (password) {
-//             updateData.password = await bcrypt.hash(password, 10);
-//         }
-
-//         // Load the user document and apply updates manually to ensure full context for validation
-//         const updatedUserDoc = await User.findById(userId);
-//         if (!updatedUserDoc) {
-//             return res.status(404).json({ error: 'User not found' });
-//         }
-
-//         // Ensure roles is always an array to prevent validation errors
-//         if (!Array.isArray(updatedUserDoc.roles)) {
-//             updatedUserDoc.roles = [];
-//         }
-
-//         // Apply updates
-//         Object.assign(updatedUserDoc, updateData);
-
-//         // If roles is being updated, ensure it's an array
-//         if (updateData.roles && !Array.isArray(updateData.roles)) {
-//             updatedUserDoc.roles = [updateData.roles];
-//         } else if (updateData.roles) {
-//             updatedUserDoc.roles = updateData.roles;
-//         }
-
-//         // Save with validation
-//         await updatedUserDoc.save({ runValidators: true });
-
-//         const updatedUser = updatedUserDoc.toObject();
-
-//         console.log('Updated user:', updatedUser);
-
-//         // Create notification for profile update (non-blocking)
-//         try {
-//             await createNotification(
-//                 req.user?._id || userId, // Use authenticated user ID
-//                 "Profile Updated Successfully",
-//                 "Your tasker profile has been updated. You can now switch to tasker mode if all fields are complete.",
-//                 "profile-update"
-//             );
-//             console.log("Notification created for profile update"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: 'User updated', user: updatedUser });
-//     } catch (error) {
-//         console.error('Update user error:', error);
-//         res.status(500).json({ error: 'Failed to update user', details: error.message });
-//     }
-// };
 
 export const verifyToken = async (req, res) => {
     const token = req.cookies.token;

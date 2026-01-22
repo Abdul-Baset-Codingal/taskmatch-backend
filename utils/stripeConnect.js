@@ -8,16 +8,63 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 // Add fallback for FRONTEND_URL
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-const PLATFORM_FEE_PERCENTAGE = 15;
+// const PLATFORM_FEE_PERCENTAGE = 15;
+
+// /**
+//  * Calculate platform fee and tasker payout
+//  */
+// export const calculateFees = (amountInCents) => {
+//     const platformFee = Math.round(amountInCents * (PLATFORM_FEE_PERCENTAGE / 100));
+//     const taskerPayout = amountInCents - platformFee;
+//     return { platformFee, taskerPayout };
+// };
+
+const CLIENT_PLATFORM_FEE_PERCENT = 10;    // 10%
+const RESERVATION_FEE_CENTS = 500;          // $5 flat
+const CLIENT_TAX_PERCENT = 13;              // 13% HST
+
+// Tasker Side  
+const TASKER_PLATFORM_FEE_PERCENT = 12;    // 12%
+const TASKER_TAX_PERCENT = 13;              // 13% tax
 
 /**
- * Calculate platform fee and tasker payout
+ * Calculate all fees for double-sided fee structure
+ * @param {number} bidAmountInCents - The bid amount in cents
+ * @returns {Object} - All fee calculations
  */
-export const calculateFees = (amountInCents) => {
-    const platformFee = Math.round(amountInCents * (PLATFORM_FEE_PERCENTAGE / 100));
-    const taskerPayout = amountInCents - platformFee;
-    return { platformFee, taskerPayout };
+export const calculateFees = (bidAmountInCents) => {
+    // ─── CLIENT SIDE ───
+    const clientPlatformFee = Math.round(bidAmountInCents * (CLIENT_PLATFORM_FEE_PERCENT / 100));
+    const reservationFee = RESERVATION_FEE_CENTS;
+    const clientTax = Math.round(bidAmountInCents * (CLIENT_TAX_PERCENT / 100));
+    const totalClientPays = bidAmountInCents + clientPlatformFee + reservationFee + clientTax;
+
+    // ─── TASKER SIDE ───
+    const taskerPlatformFee = Math.round(bidAmountInCents * (TASKER_PLATFORM_FEE_PERCENT / 100));
+    const taskerTax = Math.round(bidAmountInCents * (TASKER_TAX_PERCENT / 100));
+    const taskerPayout = bidAmountInCents - taskerPlatformFee - taskerTax;
+
+    // ─── PLATFORM ───
+    const applicationFee = totalClientPays - taskerPayout;
+
+    return {
+        // Client
+        clientPlatformFee,
+        reservationFee,
+        clientTax,
+        totalClientPays,
+
+        // Tasker
+        taskerPlatformFee,
+        taskerTax,
+        taskerPayout,
+
+        // Platform
+        applicationFee
+    };
 };
+
+
 
 /**
  * Validate tasker can receive payments
@@ -157,8 +204,8 @@ export const getOnboardingLink = async (userId) => {
     }
 
     // ✅ FIX: Ensure URLs are valid
-    const returnUrl = `${FRONTEND_URL}/update-document?stripe_return=complete`;
-    const refreshUrl = `${FRONTEND_URL}/update-document?stripe_return=refresh`;
+    const returnUrl = `${FRONTEND_URL}/complete-tasker-profile?stripe_return=complete`;
+    const refreshUrl = `${FRONTEND_URL}/complete-tasker-profile?stripe_return=refresh`;
 
     console.log('Stripe Connect URLs:');
     console.log('  Return URL:', returnUrl);

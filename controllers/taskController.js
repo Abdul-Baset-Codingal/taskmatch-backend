@@ -6,6 +6,18 @@ import User from "../models/user.js";
 import stripe from '../utils/stripeConfig.js';
 import { calculateFees, validateTaskerCanReceivePayments } from "../utils/stripeConnect.js";
 import { createNotification } from "./notificationHelper.js";
+import {
+    logTask,
+    logBid,
+    logComment,
+    logTaskAcceptance,
+    logPayment,
+    logActivity,
+    logReview , 
+    logTaskCompletion,
+    logBidAcceptance,
+
+} from "../utils/activityLogger.js";
 
 // taskController.js
 
@@ -887,6 +899,101 @@ export const savePaymentMethod = async (req, res) => {
 
 
 
+// export const createTask = async (req, res) => {
+//     try {
+//         console.log("createTask called at", new Date().toISOString());
+//         console.log("req.body:", JSON.stringify(req.body, null, 2));
+//         console.log("req.files:", JSON.stringify(req.files, null, 2));
+
+//         const {
+//             serviceId,
+//             serviceTitle,
+//             taskTitle,
+//             taskDescription,
+//             estimatedTime,
+//             location,
+//             schedule,
+//             additionalInfo,
+//             price,
+//             offerDeadline,
+//         } = req.body;
+
+//         const budget = parseFloat(price) || 0;
+//         const isUrgent = schedule === "Urgent";
+//         const urgentFee = isUrgent ? budget * 0.20 : 0;
+//         const subtotal = budget + urgentFee;
+//         const serviceFee = subtotal * 0.08;
+//         const tax = subtotal * 0.13;
+//         const totalDollars = subtotal + serviceFee + tax;
+//         const totalAmount = Math.round(totalDollars * 100); // Cents for Stripe
+
+//         const photos = Array.isArray(req.files?.photos)
+//             ? req.files.photos.map((file) => file.path)
+//             : [];
+//         const video = Array.isArray(req.files?.video) && req.files.video.length > 0
+//             ? req.files.video[0].path
+//             : null;
+
+//         const newTask = new Task({
+//             serviceId,
+//             serviceTitle,
+//             taskTitle,
+//             taskDescription,
+//             estimatedTime: String(estimatedTime),
+//             location,
+//             schedule,
+//             extraCharge: isUrgent,
+//             additionalInfo,
+//             offerDeadline,
+//             photos,
+//             price: budget, // Store base price
+//             totalAmount, // New: Full amount in cents
+//             video,
+//             client: req.user.id,
+//             stripeStatus: 'pending', // New
+//         });
+
+//         console.log("Task object before save:", JSON.stringify(newTask, null, 2));
+
+//         await newTask.save();
+//         console.log("Saved task:", JSON.stringify(newTask, null, 2));
+
+//         // Create notification for the client (task poster) - non-blocking
+//         try {
+//             await createNotification(
+//                 req.user.id,
+//                 "Task Created Successfully",
+//                 `Your task "${newTask.taskTitle}" is now live and waiting for tasker bids. Total: $${totalDollars.toFixed(2)}.`,
+//                 "task-posted",
+//                 newTask._id
+//             );
+//             console.log("Notification created for new task");
+//         } catch (notifErr) {
+//             console.error("Failed to create notification (non-blocking):", notifErr);
+//         }
+
+//         res.status(201).json({
+//             message: "Task created successfully",
+//             task: newTask,
+//             totalAmount: totalDollars.toFixed(2) // For frontend display
+//         });
+//     } catch (error) {
+//         console.error("❌ Error creating task:", error);
+//         if (error.name === "ValidationError") {
+//             return res.status(400).json({
+//                 error: "Validation Error",
+//                 message: "Invalid data provided",
+//                 details: error.errors,
+//             });
+//         }
+//         res.status(500).json({
+//             error: "Internal server error",
+//             message: "Something went wrong",
+//             details: error.message,
+//         });
+//     }
+// };
+
 export const createTask = async (req, res) => {
     try {
         console.log("createTask called at", new Date().toISOString());
@@ -934,17 +1041,43 @@ export const createTask = async (req, res) => {
             additionalInfo,
             offerDeadline,
             photos,
-            price: budget, // Store base price
-            totalAmount, // New: Full amount in cents
+            price: budget,
+            totalAmount,
             video,
             client: req.user.id,
-            stripeStatus: 'pending', // New
+            stripeStatus: 'pending',
         });
 
         console.log("Task object before save:", JSON.stringify(newTask, null, 2));
 
         await newTask.save();
         console.log("Saved task:", JSON.stringify(newTask, null, 2));
+
+        // ✅ Log successful task creation
+        await logTask({
+            action: "TASK_CREATED",
+            user: req.user,
+            req,
+            taskId: newTask._id.toString(),
+            taskTitle: newTask.taskTitle,
+            status: "success",
+            metadata: {
+                serviceId,
+                serviceTitle,
+                location,
+                schedule,
+                isUrgent,
+                basePrice: budget,
+                urgentFee,
+                serviceFee,
+                tax,
+                totalAmount: totalDollars,
+                photosCount: photos.length,
+                hasVideo: !!video,
+                estimatedTime,
+                offerDeadline,
+            },
+        });
 
         // Create notification for the client (task poster) - non-blocking
         try {
@@ -963,10 +1096,33 @@ export const createTask = async (req, res) => {
         res.status(201).json({
             message: "Task created successfully",
             task: newTask,
-            totalAmount: totalDollars.toFixed(2) // For frontend display
+            totalAmount: totalDollars.toFixed(2)
         });
     } catch (error) {
         console.error("❌ Error creating task:", error);
+
+        // ✅ Log failed task creation
+        await logActivity({
+            userId: req.user?.id || req.user?._id || null,
+            userEmail: req.user?.email || null,
+            userName: req.user ? `${req.user.firstName} ${req.user.lastName}` : null,
+            userRole: req.user?.currentRole || "client",
+            action: "TASK_CREATED",
+            description: `Failed to create task "${req.body?.taskTitle || 'Unknown'}" - ${error.message}`,
+            req,
+            metadata: {
+                taskTitle: req.body?.taskTitle,
+                serviceTitle: req.body?.serviceTitle,
+                price: req.body?.price,
+                errorName: error.name,
+                errorMessage: error.message,
+                validationErrors: error.errors || null,
+            },
+            status: "failure",
+            module: "task",
+            severity: "error",
+        });
+
         if (error.name === "ValidationError") {
             return res.status(400).json({
                 error: "Validation Error",
@@ -982,60 +1138,275 @@ export const createTask = async (req, res) => {
     }
 };
 
-export const addTaskReview = async (req, res) => {
-    try {
-        const { taskId, rating, message } = req.body;
-        const clientId = req.user._id;
 
-        console.log('Client ID:', clientId, 'Task ID:', taskId); // Debug: Log IDs
+// export const addTaskReview = async (req, res) => {
+//     try {
+//         const { taskId, rating, message } = req.body;
+//         const clientId = req.user._id;
+
+//         console.log('Client ID:', clientId, 'Task ID:', taskId); // Debug: Log IDs
+
+//         // Validate input
+//         if (!taskId || !rating || !message) {
+//             return res.status(400).json({ message: "Task ID, rating, and message are required" });
+//         }
+
+//         if (rating < 0 || rating > 5) {
+//             return res.status(400).json({ message: "Rating must be between 0 and 5" });
+//         }
+
+//         // Find the task
+//         const task = await Task.findById(taskId);
+//         if (!task) {
+//             return res.status(404).json({ message: "Task not found" });
+//         }
+
+//         console.log('Task Client ID:', task.client.toString()); // Debug: Log task client ID
+
+//         // Check if the task is completed and the client is authorized
+//         if (task.status !== "completed") {
+//             return res.status(400).json({ message: "Reviews can only be added for completed tasks" });
+//         }
+//         if (task.client.toString() !== clientId.toString()) {
+//             return res.status(403).json({ message: "You are not authorized to review this task" });
+//         }
+
+//         // Find the tasker
+//         const tasker = await User.findById(task.acceptedBy);
+//         if (!tasker || tasker.currentRole !== "tasker") {
+//             return res.status(404).json({ message: "Tasker not found" });
+//         }
+
+//         // Check if a review already exists for this task in tasker's reviews
+//         const existingReview = tasker.reviews.find(
+//             (review) => review.taskId === taskId
+//         );
+//         if (existingReview) {
+//             return res.status(400).json({ message: "A review has already been submitted for this task" });
+//         }
+
+//         // Add the review to the tasker's reviews array
+//         tasker.reviews.push({
+//             reviewer: clientId,
+//             rating,
+//             message,
+//             taskId, // Link review to task
+//             createdAt: new Date(),
+//         });
+
+//         // Update tasker's rating and review count
+//         const totalReviews = tasker.reviews.length;
+//         const averageRating =
+//             tasker.reviews.reduce((sum, rev) => sum + rev.rating, 0) / totalReviews;
+
+//         tasker.rating = parseFloat(averageRating.toFixed(2));
+//         tasker.reviewCount = totalReviews;
+
+//         await tasker.save();
+
+//         // Create notification for the tasker (new review) - non-blocking
+//         try {
+//             const client = await User.findById(clientId); // Fetch client name
+//             await createNotification(
+//                 tasker._id, // Tasker ID
+//                 "New Review Received",
+//                 `You received a ${rating}-star review from ${client.firstName} ${client.lastName} for task "${task.taskTitle}". "${message}"`,
+//                 "review",
+//                 taskId // Link to task
+//             );
+//             console.log("Notification created for new review"); // Debug
+//         } catch (notifErr) {
+//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//         }
+
+//         res.status(201).json({
+//             message: "Review added successfully",
+//             review: { reviewer: clientId, rating, message, createdAt: new Date() },
+//         });
+//     } catch (error) {
+//         console.error("Error adding task review:", error);
+//         res.status(500).json({ message: "Server error" });
+//     }
+// };
+
+
+
+
+// Enhanced getAllTasks controller with pagination and search
+
+export const addTaskReview = async (req, res) => {
+    const { taskId, rating, message } = req.body;
+    const clientId = req.user._id || req.user.id;
+
+    try {
+        console.log('Client ID:', clientId, 'Task ID:', taskId);
 
         // Validate input
         if (!taskId || !rating || !message) {
+            // ✅ Log failed review - missing fields
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task ID, rating, and message are required",
+                    providedFields: {
+                        hasTaskId: !!taskId,
+                        hasRating: !!rating,
+                        hasMessage: !!message,
+                    },
+                },
+            });
+
             return res.status(400).json({ message: "Task ID, rating, and message are required" });
         }
 
         if (rating < 0 || rating > 5) {
+            // ✅ Log failed review - invalid rating
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId,
+                rating,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Rating must be between 0 and 5",
+                    providedRating: rating,
+                },
+            });
+
             return res.status(400).json({ message: "Rating must be between 0 and 5" });
         }
 
         // Find the task
         const task = await Task.findById(taskId);
         if (!task) {
+            // ✅ Log failed review - task not found
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId,
+                rating,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task not found",
+                },
+            });
+
             return res.status(404).json({ message: "Task not found" });
         }
 
-        console.log('Task Client ID:', task.client.toString()); // Debug: Log task client ID
+        console.log('Task Client ID:', task.client.toString());
 
-        // Check if the task is completed and the client is authorized
+        // Check if the task is completed
         if (task.status !== "completed") {
+            // ✅ Log failed review - task not completed
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                rating,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Reviews can only be added for completed tasks",
+                    currentTaskStatus: task.status,
+                },
+            });
+
             return res.status(400).json({ message: "Reviews can only be added for completed tasks" });
         }
+
+        // Check if the client is authorized
         if (task.client.toString() !== clientId.toString()) {
+            // ✅ Log failed review - unauthorized
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                rating,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized - not task owner",
+                    taskOwnerId: task.client.toString(),
+                    attemptedByUserId: clientId.toString(),
+                },
+            });
+
             return res.status(403).json({ message: "You are not authorized to review this task" });
         }
 
         // Find the tasker
         const tasker = await User.findById(task.acceptedBy);
         if (!tasker || tasker.currentRole !== "tasker") {
+            // ✅ Log failed review - tasker not found
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                rating,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Tasker not found",
+                    acceptedById: task.acceptedBy?.toString(),
+                },
+            });
+
             return res.status(404).json({ message: "Tasker not found" });
         }
 
-        // Check if a review already exists for this task in tasker's reviews
+        // Check if a review already exists for this task
         const existingReview = tasker.reviews.find(
             (review) => review.taskId === taskId
         );
         if (existingReview) {
+            // ✅ Log failed review - already reviewed
+            await logReview({
+                action: "REVIEW_POSTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                rating,
+                revieweeId: tasker._id.toString(),
+                revieweeName: `${tasker.firstName} ${tasker.lastName}`,
+                status: "failure",
+                metadata: {
+                    errorMessage: "A review has already been submitted for this task",
+                    existingReviewDate: existingReview.createdAt,
+                    existingRating: existingReview.rating,
+                },
+            });
+
             return res.status(400).json({ message: "A review has already been submitted for this task" });
         }
 
+        // Get client details for the log
+        const client = await User.findById(clientId).select("firstName lastName email");
+
         // Add the review to the tasker's reviews array
-        tasker.reviews.push({
+        const newReview = {
             reviewer: clientId,
             rating,
             message,
-            taskId, // Link review to task
+            taskId,
             createdAt: new Date(),
-        });
+        };
+
+        tasker.reviews.push(newReview);
+
+        // Calculate previous rating for logging
+        const previousRating = tasker.rating;
+        const previousReviewCount = tasker.reviewCount;
 
         // Update tasker's rating and review count
         const totalReviews = tasker.reviews.length;
@@ -1047,27 +1418,73 @@ export const addTaskReview = async (req, res) => {
 
         await tasker.save();
 
+        // ✅ Log successful review
+        await logReview({
+            action: "REVIEW_POSTED",
+            user: { ...req.user, ...client?.toObject() },
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            rating,
+            revieweeId: tasker._id.toString(),
+            revieweeName: `${tasker.firstName} ${tasker.lastName}`,
+            status: "success",
+            metadata: {
+                reviewMessage: message.substring(0, 200),
+                messageLength: message.length,
+                taskerEmail: tasker.email,
+                previousTaskerRating: previousRating,
+                newTaskerRating: tasker.rating,
+                previousReviewCount: previousReviewCount,
+                newReviewCount: tasker.reviewCount,
+                taskServiceTitle: task.serviceTitle,
+                taskPrice: task.price,
+            },
+        });
+
         // Create notification for the tasker (new review) - non-blocking
         try {
-            const client = await User.findById(clientId); // Fetch client name
             await createNotification(
-                tasker._id, // Tasker ID
-                "New Review Received",
-                `You received a ${rating}-star review from ${client.firstName} ${client.lastName} for task "${task.taskTitle}". "${message}"`,
+                tasker._id,
+                "New Review Received ⭐",
+                `You received a ${rating}-star review from ${client.firstName} ${client.lastName} for task "${task.taskTitle}". "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`,
                 "review",
-                taskId // Link to task
+                taskId
             );
-            console.log("Notification created for new review"); // Debug
+            console.log("Notification created for new review");
         } catch (notifErr) {
-            console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+            console.error("Failed to create notification (non-blocking):", notifErr);
         }
 
         res.status(201).json({
             message: "Review added successfully",
-            review: { reviewer: clientId, rating, message, createdAt: new Date() },
+            review: {
+                reviewer: clientId,
+                rating,
+                message,
+                createdAt: new Date()
+            },
+            taskerNewRating: tasker.rating,
+            taskerTotalReviews: tasker.reviewCount,
         });
     } catch (error) {
         console.error("Error adding task review:", error);
+
+        // ✅ Log failed review - server error
+        await logReview({
+            action: "REVIEW_POSTED",
+            user: req.user,
+            req,
+            taskId,
+            rating,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+            },
+        });
+
         res.status(500).json({ message: "Server error" });
     }
 };
@@ -1075,7 +1492,6 @@ export const addTaskReview = async (req, res) => {
 
 
 
-// Enhanced getAllTasks controller with pagination and search
 export const getAllTasks = async (req, res) => {
     try {
         const {
@@ -1407,25 +1823,6 @@ export const getTasksByStatus = async (req, res) => {
     }
 };
 
-// ✅ Get Tasks excluding a Status
-// export const getTasksExcludingStatus = async (req, res) => {
-//     try {
-//         const { excludeStatus } = req.query;
-//         const query = {};
-
-//         if (excludeStatus) {
-//             query.status = { $ne: excludeStatus.toLowerCase() };
-//         }
-
-//         const tasks = await Task.find(query)
-//             .populate("client", "fullName email")
-//             .sort({ createdAt: -1 });
-//         res.status(200).json(tasks);
-//     } catch (error) {
-//         console.error("❌ Failed to fetch filtered tasks:", error);
-//         res.status(500).json({ error: "Failed to fetch tasks", details: error.message });
-//     }
-// };
 
 export const getTasksExcludingStatus = async (req, res) => {
     try {
@@ -1461,220 +1858,6 @@ export const getScheduledPendingTasks = async (req, res) => {
 };
 
 
-// ✅ 6. Add Bid to Task
-// export const addBidToTask = async (req, res) => {
-//     try {
-//         const { id: taskId } = req.params;
-//         const { offerPrice, message } = req.body;
-
-//         const newBid = {
-//             taskerId: req.user.id,
-//             offerPrice,
-//             message,
-//             createdAt: new Date(),
-//         };
-
-//         const updatedTask = await Task.findByIdAndUpdate(
-//             taskId,
-//             { $push: { bids: newBid } },
-//             { new: true }
-//         );
-
-//         if (!updatedTask) {
-//             return res.status(404).json({ error: "Task not found" });
-//         }
-
-//         res.status(200).json({ message: "Bid added successfully", task: updatedTask });
-//     } catch (error) {
-//         res.status(500).json({ error: "Failed to add bid", details: error.message });
-//     }
-// };
-
-// export const addCommentToTask = async (req, res) => {
-//     try {
-//         const taskId = req.params.id;
-//         const userId = req.user._id;
-//         const { message } = req.body;
-
-//         if (!message || message.trim() === "") {
-//             return res.status(400).json({ error: "Comment message cannot be empty" });
-//         }
-
-//         const userRole = req.user.role;
-
-//         if (!["tasker", "client"].includes(userRole)) {
-//             return res.status(400).json({ error: "Invalid user role" });
-//         }
-
-//         // Fetch the user details from DB
-//         const user = await User.findById(userId).select("fullName email profilePicture");
-//         if (!user) {
-//             return res.status(404).json({ error: "User not found" });
-//         }
-
-//         // Store snapshot of user details along with comment
-//         const newComment = {
-//             userId: userId,
-//             role: userRole,
-//             fullName: user.fullName,
-//             email: user.email,
-//             profilePicture: user.profilePicture || null,
-//             message: message.trim(),
-//             createdAt: new Date(),
-//             replies: [],
-//         };
-
-//         // Update the task by pushing the new comment to the comments array
-//         const updatedTask = await Task.findByIdAndUpdate(
-//             taskId,
-//             { $push: { comments: newComment } },
-//             { new: true, runValidators: false } // Skip full document validation
-//         );
-
-//         if (!updatedTask) {
-//             return res.status(404).json({ error: "Task not found" });
-//         }
-
-//         res.status(201).json({
-//             message: "Comment added successfully",
-//             task: updatedTask,
-//         });
-//     } catch (error) {
-//         console.error("Error adding comment:", error);
-//         res.status(500).json({ error: "Failed to add comment", details: error.message });
-//     }
-// };
-
-// // ✅ 7. Accept Task
-// export const acceptTaskByTasker = async (req, res) => {
-//     try {
-//         const { id: taskId } = req.params;
-//         console.log(req)
-
-//         const task = await Task.findById(taskId);
-//         if (!task) return res.status(404).json({ error: "Task not found" });
-
-//         if (task.status !== "pending") {
-//             return res.status(400).json({ error: "Task already accepted or completed" });
-//         }
-
-//         task.acceptedBy = req.user.id;
-//         task.status = "in progress";
-
-//         await task.save();
-
-//         res.status(200).json({ message: "Task accepted successfully", task });
-//     } catch (error) {
-//         res.status(500).json({ error: "Failed to accept task", details: error.message });
-//     }
-// };
-
-// // accept bid by client
-// export const acceptBidByClient = async (req, res) => {
-//     try {
-//         const { id: taskId } = req.params;
-//         const { taskerId } = req.body;
-
-//         const task = await Task.findById(taskId);
-//         if (!task) return res.status(404).json({ error: "Task not found" });
-
-//         // Check if the authenticated user is the client who posted the task
-//         if (task.client._id.toString() !== req.user.id) {
-//             return res.status(403).json({ error: "You are not authorized to accept bids for this task" });
-//         }
-
-//         if (task.status !== "pending") {
-//             return res.status(400).json({ error: "Task already accepted or completed" });
-//         }
-
-//         task.acceptedBy = taskerId;
-//         task.status = "in progress";
-
-//         await task.save();
-
-//         res.status(200).json({ message: "Bid accepted successfully", task });
-//     } catch (error) {
-//         res.status(500).json({ error: "Failed to accept bid", details: error.message });
-//     }
-// };
-
-// code of messages 
-
-// In addMessage controller - update the response
-// export const addMessage = async (req, res) => {
-//     try {
-//         const { taskId } = req.params;
-//         const { message } = req.body;
-//         const senderId = req.user.id;
-//         const senderRole = req.user.currentRole || req.user.role;
-
-//         if (!message || message.trim() === "") {
-//             return res.status(400).json({ error: "Message cannot be empty" });
-//         }
-
-//         if (message.trim().length > 5000) {
-//             return res.status(400).json({ error: "Message too long (max 5000 characters)" });
-//         }
-
-//         // First, get the task without population to add the message
-//         const task = await Task.findById(taskId);
-//         if (!task) {
-//             return res.status(404).json({ error: "Task not found" });
-//         }
-
-//         // ANY tasker can message
-//         const isClient = task.client.toString() === senderId;
-//         const isTasker = senderRole === "tasker";
-
-//         if (!isClient && !isTasker) {
-//             return res.status(403).json({ error: "You are not authorized to message" });
-//         }
-
-//         const newMessage = {
-//             sender: senderId,
-//             senderRole: isClient ? "client" : "tasker",
-//             message: message.trim(),
-//             isRead: false,
-//         };
-
-//         task.messages.push(newMessage);
-//         await task.save();
-
-//         // NOW populate the task to get user data
-//         const populatedTask = await Task.findById(taskId)
-//             .populate("client", "firstName lastName profilePicture")
-//             .populate("acceptedBy", "firstName lastName profilePicture")
-//             .populate("messages.sender", "firstName lastName profilePicture email"); // IMPORTANT: Populate sender
-
-//         // Get the newly added message (last one)
-//         const addedMessage = populatedTask.messages[populatedTask.messages.length - 1];
-
-//         // Create notification for the other participant
-//         try {
-//             const recipientId = isClient ? task.acceptedBy?._id : task.client._id;
-//             if (recipientId) {
-//                 const senderName = `${req.user.firstName} ${req.user.lastName}`;
-//                 await createNotification(
-//                     recipientId,
-//                     "New Message",
-//                     `${senderName}: ${message.trim().substring(0, 60)}${message.length > 60 ? "..." : ""}`,
-//                     "new-message",
-//                     taskId
-//                 );
-//             }
-//         } catch (notifErr) {
-//             console.error("Failed to send message notification:", notifErr);
-//         }
-
-//         res.status(201).json({
-//             message: "Message sent successfully",
-//             newMessage: addedMessage, // This now has populated sender data
-//         });
-//     } catch (error) {
-//         console.error("Error sending message:", error);
-//         res.status(500).json({ error: "Failed to send message", details: error.message });
-//     }
-// };
 
 export const addMessage = async (req, res) => {
     try {
@@ -1798,6 +1981,205 @@ export const getMessageStatus = async (req, res) => {
     }
 };
 
+
+// Get all tasks where the tasker has placed bids
+export const getTasksBiddedByTasker = async (req, res) => {
+    try {
+        const taskerId = req.user?.id || req.user?._id;
+
+        console.log("=== getTasksBiddedByTasker called ===");
+        console.log("Tasker ID:", taskerId);
+
+        if (!taskerId) {
+            return res.status(401).json({
+                success: false,
+                error: "User not authenticated",
+                message: "No user ID found in request"
+            });
+        }
+
+        const { status, bidStatus } = req.query;
+
+        // Build query - MongoDB will handle string to ObjectId conversion
+        let query = {
+            'bids.taskerId': taskerId
+        };
+
+        if (status) {
+            query.status = status;
+        }
+
+        console.log("Query:", JSON.stringify(query));
+
+        const tasks = await Task.find(query)
+            .populate('client', 'firstName lastName profileImage email phone')
+            .populate('acceptedBy', 'firstName lastName profileImage')
+            .populate('bids.taskerId', 'firstName lastName profileImage')
+            .populate('acceptedBid.taskerId', 'firstName lastName profileImage')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        console.log(`Found ${tasks.length} tasks with bids from tasker`);
+
+        const tasksWithBidInfo = tasks.map(task => {
+            // Find this tasker's bid
+            const myBid = task.bids?.find(bid => {
+                const bidTaskerId = bid.taskerId?._id?.toString() || bid.taskerId?.toString();
+                return bidTaskerId === taskerId.toString();
+            });
+
+            // Determine bid status
+            let myBidStatus = myBid?.status || 'pending';
+
+            if (task.acceptedBy) {
+                const acceptedById = task.acceptedBy._id?.toString() || task.acceptedBy.toString();
+                if (acceptedById === taskerId.toString()) {
+                    myBidStatus = 'accepted';
+                } else if (myBidStatus === 'pending') {
+                    myBidStatus = 'rejected';
+                }
+            }
+
+            if (task.acceptedBid?.taskerId) {
+                const acceptedBidTaskerId = task.acceptedBid.taskerId._id?.toString() ||
+                    task.acceptedBid.taskerId.toString();
+                if (acceptedBidTaskerId === taskerId.toString()) {
+                    myBidStatus = 'accepted';
+                }
+            }
+
+            return {
+                _id: task._id,
+                taskTitle: task.taskTitle,
+                taskDescription: task.taskDescription,
+                serviceId: task.serviceId,
+                serviceTitle: task.serviceTitle,
+                location: task.location,
+                schedule: task.schedule,
+                estimatedTime: task.estimatedTime,
+                price: task.price,
+                status: task.status,
+                photos: task.photos,
+                video: task.video,
+                client: task.client,
+                acceptedBy: task.acceptedBy,
+                acceptedBid: task.acceptedBid,
+                createdAt: task.createdAt,
+                updatedAt: task.updatedAt,
+                myBid: myBid || null,
+                myBidStatus: myBidStatus,
+                totalBids: task.bids?.length || 0,
+                payment: myBidStatus === 'accepted' ? task.payment : null
+            };
+        });
+
+        let filteredTasks = tasksWithBidInfo;
+        if (bidStatus && bidStatus !== 'all') {
+            filteredTasks = tasksWithBidInfo.filter(
+                task => task.myBidStatus === bidStatus
+            );
+        }
+
+        console.log(`Returning ${filteredTasks.length} filtered tasks`);
+
+        res.status(200).json({
+            success: true,
+            count: filteredTasks.length,
+            tasks: filteredTasks
+        });
+
+    } catch (error) {
+        console.error("❌ Error in getTasksBiddedByTasker:", error);
+        console.error("Error stack:", error.stack);
+
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch bidded tasks",
+            message: error.message
+        });
+    }
+};
+
+// Get tasker's bid statistics
+export const getTaskerBidStats = async (req, res) => {
+    try {
+        const taskerId = req.user?.id || req.user?._id;
+
+        console.log("=== getTaskerBidStats called ===");
+        console.log("Tasker ID:", taskerId);
+
+        if (!taskerId) {
+            return res.status(401).json({
+                success: false,
+                error: "User not authenticated"
+            });
+        }
+
+        // MongoDB handles string to ObjectId conversion automatically
+        const tasks = await Task.find({ 'bids.taskerId': taskerId }).lean();
+
+        let stats = {
+            totalBids: 0,
+            pendingBids: 0,
+            acceptedBids: 0,
+            rejectedBids: 0,
+            withdrawnBids: 0,
+            totalBidAmount: 0,
+            averageBidAmount: 0,
+            acceptanceRate: 0
+        };
+
+        tasks.forEach(task => {
+            const myBid = task.bids?.find(
+                bid => bid.taskerId?.toString() === taskerId.toString()
+            );
+
+            if (myBid) {
+                stats.totalBids++;
+                stats.totalBidAmount += myBid.offerPrice || 0;
+
+                if (myBid.status === 'withdrawn') {
+                    stats.withdrawnBids++;
+                } else if (myBid.status === 'accepted' ||
+                    (task.acceptedBy && task.acceptedBy.toString() === taskerId.toString()) ||
+                    (task.acceptedBid?.taskerId?.toString() === taskerId.toString())) {
+                    stats.acceptedBids++;
+                } else if (myBid.status === 'rejected' ||
+                    (task.acceptedBy && task.acceptedBy.toString() !== taskerId.toString())) {
+                    stats.rejectedBids++;
+                } else {
+                    stats.pendingBids++;
+                }
+            }
+        });
+
+        if (stats.totalBids > 0) {
+            stats.averageBidAmount = Math.round(stats.totalBidAmount / stats.totalBids);
+            const decidedBids = stats.acceptedBids + stats.rejectedBids;
+            if (decidedBids > 0) {
+                stats.acceptanceRate = Math.round((stats.acceptedBids / decidedBids) * 100);
+            }
+        }
+
+        console.log("Stats calculated:", stats);
+
+        res.status(200).json({
+            success: true,
+            stats
+        });
+
+    } catch (error) {
+        console.error("❌ Error in getTaskerBidStats:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch bid statistics",
+            message: error.message
+        });
+    }
+};
+
+
+
 // export const addBidToTask = async (req, res) => {
 //     try {
 //         const { id: taskId } = req.params;
@@ -1822,16 +2204,49 @@ export const getMessageStatus = async (req, res) => {
 
 //         // Create notification for the client (new bid received) - non-blocking
 //         try {
+//             // FIX: Get tasker details from database to ensure we have the name
+//             const tasker = await User.findById(req.user.id).select("firstName lastName");
+
+//             if (!tasker) {
+//                 console.error("Tasker not found for notification");
+//             }
+
+//             const taskerName = tasker
+//                 ? `${tasker.firstName} ${tasker.lastName}`
+//                 : "A tasker";
+
+//             // Debug: Log notification details
+//             console.log("Creating bid notification:", {
+//                 clientId: updatedTask.client,
+//                 taskerName,
+//                 offerPrice,
+//                 taskTitle: updatedTask.taskTitle
+//             });
+
 //             await createNotification(
 //                 updatedTask.client, // Client ID (task owner)
 //                 "New Bid Received",
-//                 `Tasker "${req.user.firstName} ${req.user.lastName}" placed a bid of $${offerPrice} for "${updatedTask.taskTitle}". Check details.`,
+//                 `${taskerName} placed a bid of $${offerPrice} for "${updatedTask.taskTitle}". Check details.`,
 //                 "new-bid",
 //                 updatedTask._id // Link to task
 //             );
-//             console.log("Notification created for new bid"); // Debug
+//             console.log("✅ Notification created for new bid");
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//             console.error("❌ Failed to create notification (non-blocking):", notifErr);
+//         }
+
+//         // Optional: Also notify the tasker that their bid was submitted successfully
+//         try {
+//             await createNotification(
+//                 req.user.id, // Tasker ID
+//                 "Bid Submitted",
+//                 `Your bid of $${offerPrice} for "${updatedTask.taskTitle}" has been submitted successfully.`,
+//                 "bid-submitted",
+//                 updatedTask._id
+//             );
+//             console.log("✅ Confirmation notification sent to tasker");
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker confirmation notification:", notifErr);
 //         }
 
 //         res.status(200).json({ message: "Bid added successfully", task: updatedTask });
@@ -1841,7 +2256,8 @@ export const getMessageStatus = async (req, res) => {
 //     }
 // };
 
-// Add comment to task
+
+
 // export const addCommentToTask = async (req, res) => {
 //     try {
 //         const taskId = req.params.id;
@@ -1858,17 +2274,15 @@ export const getMessageStatus = async (req, res) => {
 //             return res.status(400).json({ error: "Invalid user role" });
 //         }
 
-//         // Fetch the user details from DB
 //         const user = await User.findById(userId).select("firstName lastName email profilePicture");
 //         if (!user) {
 //             return res.status(404).json({ error: "User not found" });
 //         }
 
-//         // Store snapshot of user details along with comment
 //         const newComment = {
 //             userId: userId,
 //             role: userRole,
-//             firstName: user.firstName, // Use firstName instead of fullName
+//             firstName: user.firstName,
 //             lastName: user.lastName,
 //             email: user.email,
 //             profilePicture: user.profilePicture || null,
@@ -1877,29 +2291,47 @@ export const getMessageStatus = async (req, res) => {
 //             replies: [],
 //         };
 
-//         // Update the task by pushing the new comment to the comments array
 //         const updatedTask = await Task.findByIdAndUpdate(
 //             taskId,
 //             { $push: { comments: newComment } },
-//             { new: true, runValidators: false } // Skip full document validation
+//             { new: true, runValidators: false }
 //         );
 
 //         if (!updatedTask) {
 //             return res.status(404).json({ error: "Task not found" });
 //         }
 
-//         // Create notification for the task owner or other participants - non-blocking
+//         // FIX: Notify the appropriate person based on who commented
 //         try {
-//             await createNotification(
-//                 updatedTask.client, // Notify the client (task owner)
-//                 "New Comment Added",
-//                 `"${user.firstName} ${user.lastName}" added a comment to your task "${updatedTask.taskTitle}": "${message.substring(0, 50)}..."`,
-//                 "new-comment",
-//                 updatedTask._id // Link to task
-//             );
-//             console.log("Notification created for new comment"); // Debug
+//             const commenterName = `${user.firstName} ${user.lastName}`;
+//             const notificationMessage = `"${commenterName}" commented on "${updatedTask.taskTitle}": "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`;
+
+//             // If tasker commented, notify client
+//             if (userRole === "tasker") {
+//                 await createNotification(
+//                     updatedTask.client,
+//                     "New Comment on Your Task",
+//                     notificationMessage,
+//                     "new-comment",
+//                     updatedTask._id
+//                 );
+//                 console.log("Notification sent to client for new comment");
+//             }
+//             // If client commented, notify tasker (if one is assigned)
+//             else if (userRole === "client" && updatedTask.acceptedBy) {
+//                 await createNotification(
+//                     updatedTask.acceptedBy,
+//                     "New Comment on Task",
+//                     notificationMessage,
+//                     "new-comment",
+//                     updatedTask._id
+//                 );
+//                 console.log("Notification sent to tasker for new comment");
+//             }
+//             // Also notify if client comments on their own task (for other bidders visibility)
+//             // You might want to notify all bidders here
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
+//             console.error("Failed to create notification (non-blocking):", notifErr);
 //         }
 
 //         res.status(201).json({
@@ -1912,210 +2344,6 @@ export const getMessageStatus = async (req, res) => {
 //     }
 // };
 
-export const addBidToTask = async (req, res) => {
-    try {
-        const { id: taskId } = req.params;
-        const { offerPrice, message } = req.body;
-
-        const newBid = {
-            taskerId: req.user.id,
-            offerPrice,
-            message,
-            createdAt: new Date(),
-        };
-
-        const updatedTask = await Task.findByIdAndUpdate(
-            taskId,
-            { $push: { bids: newBid } },
-            { new: true }
-        );
-
-        if (!updatedTask) {
-            return res.status(404).json({ error: "Task not found" });
-        }
-
-        // Create notification for the client (new bid received) - non-blocking
-        try {
-            // FIX: Get tasker details from database to ensure we have the name
-            const tasker = await User.findById(req.user.id).select("firstName lastName");
-
-            if (!tasker) {
-                console.error("Tasker not found for notification");
-            }
-
-            const taskerName = tasker
-                ? `${tasker.firstName} ${tasker.lastName}`
-                : "A tasker";
-
-            // Debug: Log notification details
-            console.log("Creating bid notification:", {
-                clientId: updatedTask.client,
-                taskerName,
-                offerPrice,
-                taskTitle: updatedTask.taskTitle
-            });
-
-            await createNotification(
-                updatedTask.client, // Client ID (task owner)
-                "New Bid Received",
-                `${taskerName} placed a bid of $${offerPrice} for "${updatedTask.taskTitle}". Check details.`,
-                "new-bid",
-                updatedTask._id // Link to task
-            );
-            console.log("✅ Notification created for new bid");
-        } catch (notifErr) {
-            console.error("❌ Failed to create notification (non-blocking):", notifErr);
-        }
-
-        // Optional: Also notify the tasker that their bid was submitted successfully
-        try {
-            await createNotification(
-                req.user.id, // Tasker ID
-                "Bid Submitted",
-                `Your bid of $${offerPrice} for "${updatedTask.taskTitle}" has been submitted successfully.`,
-                "bid-submitted",
-                updatedTask._id
-            );
-            console.log("✅ Confirmation notification sent to tasker");
-        } catch (notifErr) {
-            console.error("❌ Failed to create tasker confirmation notification:", notifErr);
-        }
-
-        res.status(200).json({ message: "Bid added successfully", task: updatedTask });
-    } catch (error) {
-        console.error("Error adding bid:", error);
-        res.status(500).json({ error: "Failed to add bid", details: error.message });
-    }
-};
-
-
-
-export const addCommentToTask = async (req, res) => {
-    try {
-        const taskId = req.params.id;
-        const userId = req.user._id;
-        const { message } = req.body;
-
-        if (!message || message.trim() === "") {
-            return res.status(400).json({ error: "Comment message cannot be empty" });
-        }
-
-        const userRole = req.user.currentRole;
-
-        if (!["tasker", "client"].includes(userRole)) {
-            return res.status(400).json({ error: "Invalid user role" });
-        }
-
-        const user = await User.findById(userId).select("firstName lastName email profilePicture");
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        const newComment = {
-            userId: userId,
-            role: userRole,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            profilePicture: user.profilePicture || null,
-            message: message.trim(),
-            createdAt: new Date(),
-            replies: [],
-        };
-
-        const updatedTask = await Task.findByIdAndUpdate(
-            taskId,
-            { $push: { comments: newComment } },
-            { new: true, runValidators: false }
-        );
-
-        if (!updatedTask) {
-            return res.status(404).json({ error: "Task not found" });
-        }
-
-        // FIX: Notify the appropriate person based on who commented
-        try {
-            const commenterName = `${user.firstName} ${user.lastName}`;
-            const notificationMessage = `"${commenterName}" commented on "${updatedTask.taskTitle}": "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`;
-
-            // If tasker commented, notify client
-            if (userRole === "tasker") {
-                await createNotification(
-                    updatedTask.client,
-                    "New Comment on Your Task",
-                    notificationMessage,
-                    "new-comment",
-                    updatedTask._id
-                );
-                console.log("Notification sent to client for new comment");
-            }
-            // If client commented, notify tasker (if one is assigned)
-            else if (userRole === "client" && updatedTask.acceptedBy) {
-                await createNotification(
-                    updatedTask.acceptedBy,
-                    "New Comment on Task",
-                    notificationMessage,
-                    "new-comment",
-                    updatedTask._id
-                );
-                console.log("Notification sent to tasker for new comment");
-            }
-            // Also notify if client comments on their own task (for other bidders visibility)
-            // You might want to notify all bidders here
-        } catch (notifErr) {
-            console.error("Failed to create notification (non-blocking):", notifErr);
-        }
-
-        res.status(201).json({
-            message: "Comment added successfully",
-            task: updatedTask,
-        });
-    } catch (error) {
-        console.error("Error adding comment:", error);
-        res.status(500).json({ error: "Failed to add comment", details: error.message });
-    }
-};
-
-
-// Accept task by tasker
-// export const acceptTaskByTasker = async (req, res) => {
-//     try {
-//         const { id: taskId } = req.params;
-//         console.log(req)
-
-//         const task = await Task.findById(taskId);
-//         if (!task) return res.status(404).json({ error: "Task not found" });
-
-//         if (task.status !== "pending") {
-//             return res.status(400).json({ error: "Task already accepted or completed" });
-//         }
-
-//         task.acceptedBy = req.user.id;
-//         task.status = "in progress";
-
-//         await task.save();
-
-//         // Create notification for the client (task accepted) - non-blocking
-//         try {
-//             const tasker = await User.findById(req.user.id).select("firstName lastName");
-//             await createNotification(
-//                 task.client, // Client ID (task owner)
-//                 "Task Accepted",
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" has accepted your task "${task.taskTitle}". Communication will start soon.`,
-//                 "task-accepted",
-//                 task._id // Link to task
-//             );
-//             console.log("Notification created for task accepted"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Task accepted successfully", task });
-//     } catch (error) {
-//         console.error("Error accepting task:", error);
-//         res.status(500).json({ error: "Failed to accept task", details: error.message });
-//     }
-// };
 
 
 // export const acceptTaskByTasker = async (req, res) => {
@@ -2137,7 +2365,7 @@ export const addCommentToTask = async (req, res) => {
 //         // Authorize (hold) funds
 //         const paymentIntent = await stripe.paymentIntents.create({
 //             amount: task.totalAmount,
-//             currency: 'cad', // Or 'cad'
+//             currency: 'cad',
 //             customer: client.stripeCustomerId,
 //             payment_method: client.defaultPaymentMethod,
 //             confirmation_method: 'manual',
@@ -2160,19 +2388,85 @@ export const addCommentToTask = async (req, res) => {
 //         task.stripeStatus = 'authorized';
 //         await task.save();
 
-//         // Create notification...
+//         // FIX: Get tasker details from database
+//         const tasker = await User.findById(req.user.id).select("firstName lastName");
+
+//         if (!tasker) {
+//             console.error("Tasker not found for notification");
+//         }
+
+//         const taskerName = tasker
+//             ? `${tasker.firstName} ${tasker.lastName}`
+//             : "A tasker";
+
+//         const paymentAmount = task.totalAmount ? (task.totalAmount / 100).toFixed(2) : '0.00';
+
+//         // Get client ID safely (since client is populated)
+//         const clientId = task.client._id || task.client;
+
+//         // Create notification for the client (task accepted)
 //         try {
-//             const tasker = await User.findById(req.user.id).select("firstName lastName");
+//             // Debug: Log notification details
+//             console.log("Creating task accepted notification:", {
+//                 clientId,
+//                 taskerName,
+//                 taskTitle: task.taskTitle,
+//                 paymentAmount
+//             });
+
 //             await createNotification(
-//                 task.client,
-//                 "Task Accepted",
-//                 `Tasker "${tasker.firstName} ${tasker.lastName}" has accepted your task "${task.taskTitle}". Funds held: $${(task.totalAmount / 100).toFixed(2)}.`,
+//                 clientId, // Client ID (task owner)
+//                 "Task Accepted! 🎉",
+//                 `${taskerName} has accepted your task "${task.taskTitle}". A hold of $${paymentAmount} has been placed on your payment method. Work will begin soon!`,
 //                 "task-accepted",
 //                 task._id
 //             );
-//             console.log("Notification created for task accepted");
+//             console.log("✅ Notification created for client - task accepted");
+
 //         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr);
+//             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+//         }
+
+//         // Send confirmation notification to tasker
+//         try {
+//             await createNotification(
+//                 req.user.id, // Tasker ID
+//                 "Task Accepted Successfully",
+//                 `You have accepted the task "${task.taskTitle}". A payment of $${paymentAmount} has been authorized. You can now start working on this task!`,
+//                 "task-accept-confirmed",
+//                 task._id
+//             );
+//             console.log("✅ Confirmation notification sent to tasker");
+
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker confirmation notification:", notifErr);
+//         }
+
+//         // Optional: Notify other bidders that task has been assigned
+//         try {
+//             if (task.bids && task.bids.length > 0) {
+//                 // Get unique tasker IDs from bids (excluding the one who accepted)
+//                 const otherBidderIds = [...new Set(
+//                     task.bids
+//                         .map(bid => bid.taskerId.toString())
+//                         .filter(id => id !== req.user.id)
+//                 )];
+
+//                 console.log("Notifying other bidders about task assignment:", otherBidderIds);
+
+//                 for (const bidderId of otherBidderIds) {
+//                     await createNotification(
+//                         bidderId,
+//                         "Task Assigned to Another Tasker",
+//                         `The task "${task.taskTitle}" has been assigned to another tasker. Keep an eye out for other opportunities!`,
+//                         "task-assigned-other",
+//                         task._id
+//                     );
+//                 }
+//                 console.log(`✅ Notified ${otherBidderIds.length} other bidders`);
+//             }
+//         } catch (notifErr) {
+//             console.error("❌ Failed to notify other bidders (non-blocking):", notifErr);
 //         }
 
 //         res.status(200).json({ message: "Task accepted successfully", task });
@@ -2182,67 +2476,479 @@ export const addCommentToTask = async (req, res) => {
 //     }
 // };
 
-export const acceptTaskByTasker = async (req, res) => {
-    try {
-        const { id: taskId } = req.params;
 
+export const addBidToTask = async (req, res) => {
+    const { id: taskId } = req.params;
+    const { offerPrice, message } = req.body;
+
+    try {
+        const newBid = {
+            taskerId: req.user.id,
+            offerPrice,
+            message,
+            createdAt: new Date(),
+        };
+
+        const updatedTask = await Task.findByIdAndUpdate(
+            taskId,
+            { $push: { bids: newBid } },
+            { new: true }
+        );
+
+        if (!updatedTask) {
+            // ✅ Log failed bid - task not found
+            await logBid({
+                action: "BID_PLACED",
+                user: req.user,
+                req,
+                taskId,
+                offerPrice,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task not found",
+                    bidMessage: message?.substring(0, 100),
+                },
+            });
+
+            return res.status(404).json({ error: "Task not found" });
+        }
+
+        // Get tasker details for notification
+        const tasker = await User.findById(req.user.id).select("firstName lastName email");
+        const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "A tasker";
+
+        // ✅ Log successful bid placement
+        await logBid({
+            action: "BID_PLACED",
+            user: { ...req.user, ...tasker?.toObject() },
+            req,
+            taskId: updatedTask._id.toString(),
+            taskTitle: updatedTask.taskTitle,
+            offerPrice,
+            status: "success",
+            metadata: {
+                bidMessage: message?.substring(0, 200),
+                totalBidsOnTask: updatedTask.bids.length,
+                taskOwnerId: updatedTask.client.toString(),
+                taskStatus: updatedTask.status,
+                serviceTitle: updatedTask.serviceTitle,
+            },
+        });
+
+        // Create notification for the client (new bid received) - non-blocking
+        try {
+            console.log("Creating bid notification:", {
+                clientId: updatedTask.client,
+                taskerName,
+                offerPrice,
+                taskTitle: updatedTask.taskTitle
+            });
+
+            await createNotification(
+                updatedTask.client,
+                "New Bid Received",
+                `${taskerName} placed a bid of $${offerPrice} for "${updatedTask.taskTitle}". Check details.`,
+                "new-bid",
+                updatedTask._id
+            );
+            console.log("✅ Notification created for new bid");
+        } catch (notifErr) {
+            console.error("❌ Failed to create notification (non-blocking):", notifErr);
+        }
+
+        // Notify tasker that their bid was submitted
+        try {
+            await createNotification(
+                req.user.id,
+                "Bid Submitted",
+                `Your bid of $${offerPrice} for "${updatedTask.taskTitle}" has been submitted successfully.`,
+                "bid-submitted",
+                updatedTask._id
+            );
+            console.log("✅ Confirmation notification sent to tasker");
+        } catch (notifErr) {
+            console.error("❌ Failed to create tasker confirmation notification:", notifErr);
+        }
+
+        res.status(200).json({ message: "Bid added successfully", task: updatedTask });
+    } catch (error) {
+        console.error("Error adding bid:", error);
+
+        // ✅ Log failed bid - server error
+        await logBid({
+            action: "BID_PLACED",
+            user: req.user,
+            req,
+            taskId,
+            offerPrice,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                bidMessage: message?.substring(0, 100),
+            },
+        });
+
+        res.status(500).json({ error: "Failed to add bid", details: error.message });
+    }
+};
+
+// ============================================
+// ADD COMMENT TO TASK
+// ============================================
+export const addCommentToTask = async (req, res) => {
+    const taskId = req.params.id;
+    const userId = req.user._id || req.user.id;
+    const { message } = req.body;
+
+    try {
+        if (!message || message.trim() === "") {
+            // ✅ Log failed comment - empty message
+            await logComment({
+                action: "COMMENT_ADDED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Comment message cannot be empty",
+                },
+            });
+
+            return res.status(400).json({ error: "Comment message cannot be empty" });
+        }
+
+        const userRole = req.user.currentRole;
+
+        if (!["tasker", "client"].includes(userRole)) {
+            // ✅ Log failed comment - invalid role
+            await logComment({
+                action: "COMMENT_ADDED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid user role",
+                    attemptedRole: userRole,
+                },
+            });
+
+            return res.status(400).json({ error: "Invalid user role" });
+        }
+
+        const user = await User.findById(userId).select("firstName lastName email profilePicture");
+        if (!user) {
+            await logComment({
+                action: "COMMENT_ADDED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: { errorMessage: "User not found" },
+            });
+
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const newComment = {
+            userId: userId,
+            role: userRole,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            profilePicture: user.profilePicture || null,
+            message: message.trim(),
+            createdAt: new Date(),
+            replies: [],
+        };
+
+        const updatedTask = await Task.findByIdAndUpdate(
+            taskId,
+            { $push: { comments: newComment } },
+            { new: true, runValidators: false }
+        );
+
+        if (!updatedTask) {
+            // ✅ Log failed comment - task not found
+            await logComment({
+                action: "COMMENT_ADDED",
+                user: { ...req.user, ...user.toObject() },
+                req,
+                taskId,
+                commentPreview: message,
+                status: "failure",
+                metadata: { errorMessage: "Task not found" },
+            });
+
+            return res.status(404).json({ error: "Task not found" });
+        }
+
+        // ✅ Log successful comment
+        await logComment({
+            action: "COMMENT_ADDED",
+            user: { ...req.user, ...user.toObject() },
+            req,
+            taskId: updatedTask._id.toString(),
+            taskTitle: updatedTask.taskTitle,
+            commentPreview: message,
+            status: "success",
+            metadata: {
+                commentLength: message.length,
+                totalCommentsOnTask: updatedTask.comments.length,
+                commenterRole: userRole,
+                taskOwnerId: updatedTask.client.toString(),
+                hasAcceptedTasker: !!updatedTask.acceptedBy,
+            },
+        });
+
+        // Notifications
+        try {
+            const commenterName = `${user.firstName} ${user.lastName}`;
+            const notificationMessage = `"${commenterName}" commented on "${updatedTask.taskTitle}": "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`;
+
+            if (userRole === "tasker") {
+                await createNotification(
+                    updatedTask.client,
+                    "New Comment on Your Task",
+                    notificationMessage,
+                    "new-comment",
+                    updatedTask._id
+                );
+                console.log("Notification sent to client for new comment");
+            } else if (userRole === "client" && updatedTask.acceptedBy) {
+                await createNotification(
+                    updatedTask.acceptedBy,
+                    "New Comment on Task",
+                    notificationMessage,
+                    "new-comment",
+                    updatedTask._id
+                );
+                console.log("Notification sent to tasker for new comment");
+            }
+        } catch (notifErr) {
+            console.error("Failed to create notification (non-blocking):", notifErr);
+        }
+
+        res.status(201).json({
+            message: "Comment added successfully",
+            task: updatedTask,
+        });
+    } catch (error) {
+        console.error("Error adding comment:", error);
+
+        // ✅ Log failed comment - server error
+        await logComment({
+            action: "COMMENT_ADDED",
+            user: req.user,
+            req,
+            taskId,
+            commentPreview: message,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+            },
+        });
+
+        res.status(500).json({ error: "Failed to add comment", details: error.message });
+    }
+};
+
+// ============================================
+// ACCEPT TASK BY TASKER
+// ============================================
+export const acceptTaskByTasker = async (req, res) => {
+    const { id: taskId } = req.params;
+
+    try {
         const task = await Task.findById(taskId).populate('client');
-        if (!task) return res.status(404).json({ error: "Task not found" });
+        if (!task) {
+            // ✅ Log failed acceptance - task not found
+            await logTaskAcceptance({
+                action: "TASK_ACCEPTED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: { errorMessage: "Task not found" },
+            });
+
+            return res.status(404).json({ error: "Task not found" });
+        }
 
         if (task.status !== "pending") {
+            // ✅ Log failed acceptance - invalid status
+            await logTaskAcceptance({
+                action: "TASK_ACCEPTED",
+                user: req.user,
+                req,
+                taskId,
+                taskTitle: task.taskTitle,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task already accepted or completed",
+                    currentStatus: task.status,
+                },
+            });
+
             return res.status(400).json({ error: "Task already accepted or completed" });
         }
 
         const client = task.client;
         if (!client.stripeCustomerId || !client.defaultPaymentMethod) {
-            return res.status(400).json({ message: 'Client has no saved payment method. Please ask them to add one.' });
+            // ✅ Log failed acceptance - no payment method
+            await logTaskAcceptance({
+                action: "TASK_ACCEPTED",
+                user: req.user,
+                req,
+                taskId,
+                taskTitle: task.taskTitle,
+                clientId: client._id.toString(),
+                status: "failure",
+                metadata: {
+                    errorMessage: "Client has no saved payment method",
+                    clientEmail: client.email,
+                },
+            });
+
+            return res.status(400).json({
+                message: 'Client has no saved payment method. Please ask them to add one.'
+            });
         }
 
         // Authorize (hold) funds
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: task.totalAmount,
-            currency: 'cad',
-            customer: client.stripeCustomerId,
-            payment_method: client.defaultPaymentMethod,
-            confirmation_method: 'manual',
-            confirm: true,
-            capture_method: 'manual',
-            description: `Authorization for Task ${task._id}`,
-            metadata: { taskId: task._id.toString() },
-        });
+        let paymentIntent;
+        try {
+            paymentIntent = await stripe.paymentIntents.create({
+                amount: task.totalAmount,
+                currency: 'cad',
+                customer: client.stripeCustomerId,
+                payment_method: client.defaultPaymentMethod,
+                confirmation_method: 'manual',
+                confirm: true,
+                capture_method: 'manual',
+                description: `Authorization for Task ${task._id}`,
+                metadata: { taskId: task._id.toString() },
+            });
+
+            // ✅ Log payment authorization
+            await logPayment({
+                action: "PAYMENT_AUTHORIZED",
+                user: client,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: task.totalAmount,
+                paymentIntentId: paymentIntent.id,
+                status: "success",
+                metadata: {
+                    taskerId: req.user.id,
+                    stripeCustomerId: client.stripeCustomerId,
+                    paymentStatus: paymentIntent.status,
+                },
+            });
+
+        } catch (stripeError) {
+            // ✅ Log payment authorization failure
+            await logPayment({
+                action: "PAYMENT_AUTHORIZED",
+                user: client,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: task.totalAmount,
+                status: "failure",
+                metadata: {
+                    errorMessage: stripeError.message,
+                    stripeErrorCode: stripeError.code,
+                    taskerId: req.user.id,
+                },
+            });
+
+            // Also log task acceptance failure due to payment
+            await logTaskAcceptance({
+                action: "TASK_ACCEPTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: task.totalAmount,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization failed",
+                    stripeError: stripeError.message,
+                },
+            });
+
+            return res.status(400).json({
+                message: 'Payment authorization failed',
+                error: stripeError.message
+            });
+        }
 
         if (paymentIntent.status !== 'requires_capture') {
+            // ✅ Log failed payment status
+            await logPayment({
+                action: "PAYMENT_AUTHORIZED",
+                user: client,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: task.totalAmount,
+                paymentIntentId: paymentIntent.id,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization did not result in requires_capture status",
+                    actualStatus: paymentIntent.status,
+                    lastPaymentError: paymentIntent.last_payment_error?.message,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Payment authorization failed',
                 error: paymentIntent.last_payment_error?.message
             });
         }
 
+        // Update task
         task.acceptedBy = req.user.id;
         task.status = "in progress";
         task.paymentIntentId = paymentIntent.id;
         task.stripeStatus = 'authorized';
+        task.acceptedAt = new Date();
         await task.save();
 
-        // FIX: Get tasker details from database
-        const tasker = await User.findById(req.user.id).select("firstName lastName");
-
-        if (!tasker) {
-            console.error("Tasker not found for notification");
-        }
-
-        const taskerName = tasker
-            ? `${tasker.firstName} ${tasker.lastName}`
-            : "A tasker";
-
+        // Get tasker details
+        const tasker = await User.findById(req.user.id).select("firstName lastName email");
+        const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "A tasker";
         const paymentAmount = task.totalAmount ? (task.totalAmount / 100).toFixed(2) : '0.00';
-
-        // Get client ID safely (since client is populated)
         const clientId = task.client._id || task.client;
 
-        // Create notification for the client (task accepted)
+        // ✅ Log successful task acceptance
+        await logTaskAcceptance({
+            action: "TASK_ACCEPTED",
+            user: { ...req.user, ...tasker?.toObject() },
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            clientId: clientId.toString(),
+            amount: task.totalAmount,
+            status: "success",
+            metadata: {
+                paymentIntentId: paymentIntent.id,
+                paymentAmountFormatted: `$${paymentAmount}`,
+                previousStatus: "pending",
+                newStatus: "in progress",
+                clientEmail: client.email,
+                taskerEmail: tasker?.email,
+                totalBidsOnTask: task.bids?.length || 0,
+                serviceTitle: task.serviceTitle,
+            },
+        });
+
+        // Notifications
         try {
-            // Debug: Log notification details
             console.log("Creating task accepted notification:", {
                 clientId,
                 taskerName,
@@ -2251,37 +2957,34 @@ export const acceptTaskByTasker = async (req, res) => {
             });
 
             await createNotification(
-                clientId, // Client ID (task owner)
+                clientId,
                 "Task Accepted! 🎉",
                 `${taskerName} has accepted your task "${task.taskTitle}". A hold of $${paymentAmount} has been placed on your payment method. Work will begin soon!`,
                 "task-accepted",
                 task._id
             );
             console.log("✅ Notification created for client - task accepted");
-
         } catch (notifErr) {
             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
         }
 
-        // Send confirmation notification to tasker
+        // Tasker confirmation notification
         try {
             await createNotification(
-                req.user.id, // Tasker ID
+                req.user.id,
                 "Task Accepted Successfully",
                 `You have accepted the task "${task.taskTitle}". A payment of $${paymentAmount} has been authorized. You can now start working on this task!`,
                 "task-accept-confirmed",
                 task._id
             );
             console.log("✅ Confirmation notification sent to tasker");
-
         } catch (notifErr) {
             console.error("❌ Failed to create tasker confirmation notification:", notifErr);
         }
 
-        // Optional: Notify other bidders that task has been assigned
+        // Notify other bidders
         try {
             if (task.bids && task.bids.length > 0) {
-                // Get unique tasker IDs from bids (excluding the one who accepted)
                 const otherBidderIds = [...new Set(
                     task.bids
                         .map(bid => bid.taskerId.toString())
@@ -2308,57 +3011,25 @@ export const acceptTaskByTasker = async (req, res) => {
         res.status(200).json({ message: "Task accepted successfully", task });
     } catch (error) {
         console.error("Error accepting task:", error);
+
+        // ✅ Log failed task acceptance - server error
+        await logTaskAcceptance({
+            action: "TASK_ACCEPTED",
+            user: req.user,
+            req,
+            taskId,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+            },
+        });
+
         res.status(500).json({ error: "Failed to accept task", details: error.message });
     }
 };
 
-
-// Accept bid by client
-// export const acceptBidByClient = async (req, res) => {
-//     try {
-//         const { id: taskId } = req.params;
-//         const { taskerId } = req.body;
-
-//         const task = await Task.findById(taskId);
-//         if (!task) return res.status(404).json({ error: "Task not found" });
-
-//         // Check if the authenticated user is the client who posted the task
-//         if (task.client._id.toString() !== req.user.id) {
-//             return res.status(403).json({ error: "You are not authorized to accept bids for this task" });
-//         }
-
-//         if (task.status !== "pending") {
-//             return res.status(400).json({ error: "Task already accepted or completed" });
-//         }
-
-//         task.acceptedBy = taskerId;
-//         task.status = "in progress";
-
-//         await task.save();
-
-//         // Create notification for the tasker (bid accepted) - non-blocking
-//         try {
-//             const client = await User.findById(req.user.id).select("firstName lastName");
-//             await createNotification(
-//                 taskerId, // Tasker ID
-//                 "Bid Accepted",
-//                 `Client "${client.firstName} ${client.lastName}" has accepted your bid for "${task.taskTitle}". Get ready to start!`,
-//                 "bid-accepted",
-//                 task._id // Link to task
-//             );
-//             console.log("Notification created for bid accepted"); // Debug
-//         } catch (notifErr) {
-//             console.error("Failed to create notification (non-blocking):", notifErr); // Log but don't crash
-//         }
-
-//         res.status(200).json({ message: "Bid accepted successfully", task });
-//     } catch (error) {
-//         console.error("Error accepting bid:", error);
-//         res.status(500).json({ error: "Failed to accept bid", details: error.message });
-//     }
-// };
-
-// Add this endpoint to your taskController.js
 export const createPaymentIntent = async (req, res) => {
     try {
         const { amount, taskId, taskerId, description } = req.body;
@@ -2432,10 +3103,17 @@ export const createPaymentIntent = async (req, res) => {
 
 
 
+// ==================== FEE CONSTANTS ====================
+// CLIENT SIDE
+const CLIENT_PLATFORM_FEE_PERCENT = 0.10;  // 10%
+const RESERVATION_FEE_CENTS = 500;          // $5 flat fee
+const CLIENT_TAX_PERCENT = 0.13;            // 13% HST on task price
 
+// TASKER SIDE
+const TASKER_PLATFORM_FEE_PERCENT = 0.12;  // 12%
+const TASKER_TAX_PERCENT = 0.13;            // 13% tax deducted
 
-// export const acceptBidByClient = async (req, res) => {
-//     let paymentIntent = null;  // Track for cleanup
+//     let paymentIntent = null;
 
 //     try {
 //         const { id: taskId } = req.params;
@@ -2444,8 +3122,6 @@ export const createPaymentIntent = async (req, res) => {
 //         console.log("📥 Accept bid request:", req.body);
 
 //         // ==================== VALIDATION PHASE ====================
-//         // Do ALL validation BEFORE creating PaymentIntent
-
 //         const task = await Task.findById(taskId).populate('client');
 //         if (!task) {
 //             return res.status(404).json({ error: "Task not found" });
@@ -2509,7 +3185,6 @@ export const createPaymentIntent = async (req, res) => {
 //                 customerId = paymentMethod.customer;
 //             }
 
-//             // Update client
 //             client.stripeCustomerId = customerId;
 //             client.defaultPaymentMethodId = paymentMethodId;
 //             await client.save();
@@ -2522,41 +3197,138 @@ export const createPaymentIntent = async (req, res) => {
 //             });
 //         }
 
-//         // Calculate amounts
+//         // ==================== ⭐ DOUBLE-SIDED FEE CALCULATION ====================
 //         const bidAmountInCents = Math.round(acceptedBid.offerPrice * 100);
-//         const platformFee = Math.round(bidAmountInCents * 0.15);
-//         const taskerPayout = bidAmountInCents - platformFee;
 
-//         if (bidAmountInCents < 50) {
+//         // ────────────────────────────────────────────
+//         // CLIENT SIDE FEES (added to bid amount)
+//         // ────────────────────────────────────────────
+
+//         // Platform Fee: 10% of bid
+//         const clientPlatformFeeInCents = Math.round(bidAmountInCents * CLIENT_PLATFORM_FEE_PERCENT);
+
+//         // Reservation Fee: $5 flat
+//         const reservationFeeInCents = RESERVATION_FEE_CENTS;
+
+//         // HST: 13% on the task price (bid amount)
+//         const clientTaxInCents = Math.round(bidAmountInCents * CLIENT_TAX_PERCENT);
+
+//         // TOTAL CLIENT PAYS = Bid + 10% + $5 + 13%
+//         const totalClientPaysInCents = bidAmountInCents + clientPlatformFeeInCents + reservationFeeInCents + clientTaxInCents;
+
+//         // ────────────────────────────────────────────
+//         // TASKER SIDE FEES (deducted from bid amount)
+//         // ────────────────────────────────────────────
+
+//         // Platform Fee: 12% deducted from tasker
+//         const taskerPlatformFeeInCents = Math.round(bidAmountInCents * TASKER_PLATFORM_FEE_PERCENT);
+
+//         // Tax: 13% deducted from tasker
+//         const taskerTaxInCents = Math.round(bidAmountInCents * TASKER_TAX_PERCENT);
+
+//         // Total deductions from tasker
+//         const totalTaskerDeductionsInCents = taskerPlatformFeeInCents + taskerTaxInCents;
+
+//         // TASKER RECEIVES = Bid - 12% - 13%
+//         const taskerPayoutInCents = bidAmountInCents - totalTaskerDeductionsInCents;
+
+//         // ────────────────────────────────────────────
+//         // PLATFORM KEEPS (application fee for Stripe)
+//         // ────────────────────────────────────────────
+
+//         // Application Fee = Total Client Pays - Tasker Payout
+//         const applicationFeeInCents = totalClientPaysInCents - taskerPayoutInCents;
+
+//         // For logging: breakdown of platform revenue
+//         const clientFeesTotal = clientPlatformFeeInCents + reservationFeeInCents + clientTaxInCents;
+//         const taskerFeesTotal = totalTaskerDeductionsInCents;
+
+//         console.log("💰 DOUBLE-SIDED FEE Payment Breakdown:");
+//         console.log(`   ┌─────────────────────────────────────────────────────┐`);
+//         console.log(`   │ BID AMOUNT:                  $${(bidAmountInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ CLIENT SIDE (added to bid):`);
+//         console.log(`   │   Platform Fee (10%):       +$${(clientPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   Reservation Fee:          +$${(reservationFeeInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   HST (13%):                +$${(clientTaxInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   ─────────────────────────────────────────────────`);
+//         console.log(`   │   TOTAL CLIENT PAYS:         $${(totalClientPaysInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ TASKER SIDE (deducted from bid):`);
+//         console.log(`   │   Platform Fee (12%):       -$${(taskerPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   Tax (13%):                -$${(taskerTaxInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   ─────────────────────────────────────────────────`);
+//         console.log(`   │   TASKER RECEIVES:           $${(taskerPayoutInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   ├─────────────────────────────────────────────────────┤`);
+//         console.log(`   │ PLATFORM REVENUE:`);
+//         console.log(`   │   From Client:              +$${(clientFeesTotal / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   From Tasker:              +$${(taskerFeesTotal / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   │   ─────────────────────────────────────────────────`);
+//         console.log(`   │   TOTAL PLATFORM KEEPS:      $${(applicationFeeInCents / 100).toFixed(2).padStart(8)}`);
+//         console.log(`   └─────────────────────────────────────────────────────┘`);
+
+//         // Validation
+//         if (totalClientPaysInCents < 50) {
 //             return res.status(400).json({
-//                 message: 'Minimum bid amount is $0.50 CAD',
+//                 message: 'Total amount too small. Minimum is $0.50 CAD',
 //                 code: 'AMOUNT_TOO_SMALL'
+//             });
+//         }
+
+//         if (taskerPayoutInCents < 0) {
+//             return res.status(400).json({
+//                 message: 'Bid amount too small to cover fees',
+//                 code: 'BID_TOO_SMALL'
 //             });
 //         }
 
 //         console.log("✅ All validations passed, creating PaymentIntent...");
 
 //         // ==================== PAYMENT PHASE ====================
-//         // Only NOW create the PaymentIntent (after all validations pass)
-
 //         try {
 //             paymentIntent = await stripe.paymentIntents.create({
-//                 amount: bidAmountInCents,
+//                 // Charge the TOTAL amount from client
+//                 amount: totalClientPaysInCents,
 //                 currency: 'cad',
 //                 customer: customerId,
 //                 payment_method: paymentMethodId,
-//                 capture_method: 'manual',  // Hold, don't capture
-//                 description: `Task: ${task.taskTitle} - Bid: $${acceptedBid.offerPrice}`,
-//                 application_fee_amount: platformFee,
+//                 capture_method: 'manual',  // Hold, don't capture yet
+
+//                 description: `Task: ${task.taskTitle} - Bid: $${acceptedBid.offerPrice} (+ fees & taxes)`,
+
+//                 // Platform keeps this amount
+//                 application_fee_amount: applicationFeeInCents,
+
+//                 // Tasker receives the remainder
 //                 transfer_data: {
 //                     destination: taskerStripeAccountId,
 //                 },
+
 //                 metadata: {
 //                     taskId: task._id.toString(),
 //                     taskerId: taskerId,
 //                     clientId: client._id.toString(),
-//                     bidAmount: acceptedBid.offerPrice.toString(),
+
+//                     // All amounts for reference
+//                     bidAmount: (bidAmountInCents / 100).toString(),
+
+//                     // Client fees
+//                     clientPlatformFee: (clientPlatformFeeInCents / 100).toString(),
+//                     reservationFee: (reservationFeeInCents / 100).toString(),
+//                     clientTax: (clientTaxInCents / 100).toString(),
+//                     totalClientPays: (totalClientPaysInCents / 100).toString(),
+
+//                     // Tasker deductions
+//                     taskerPlatformFee: (taskerPlatformFeeInCents / 100).toString(),
+//                     taskerTax: (taskerTaxInCents / 100).toString(),
+//                     taskerPayout: (taskerPayoutInCents / 100).toString(),
+
+//                     // Platform
+//                     applicationFee: (applicationFeeInCents / 100).toString(),
+
+//                     feeStructure: 'client-10-5-13_tasker-12-13',
 //                 },
+
 //                 automatic_payment_methods: {
 //                     enabled: true,
 //                     allow_redirects: 'never'
@@ -2565,6 +3337,7 @@ export const createPaymentIntent = async (req, res) => {
 //             });
 
 //             console.log("✅ PaymentIntent created:", paymentIntent.id);
+//             console.log("   Status:", paymentIntent.status);
 
 //         } catch (stripeError) {
 //             console.error("❌ Stripe error:", stripeError);
@@ -2575,7 +3348,6 @@ export const createPaymentIntent = async (req, res) => {
 //         }
 
 //         if (paymentIntent.status !== 'requires_capture') {
-//             // Cancel the intent if status is wrong
 //             try {
 //                 await stripe.paymentIntents.cancel(paymentIntent.id);
 //             } catch (e) {
@@ -2590,8 +3362,6 @@ export const createPaymentIntent = async (req, res) => {
 //         }
 
 //         // ==================== DATABASE UPDATE PHASE ====================
-//         // PaymentIntent created, now update database
-
 //         try {
 //             const now = new Date();
 
@@ -2602,16 +3372,42 @@ export const createPaymentIntent = async (req, res) => {
 //             task.acceptedBidAmount = acceptedBid.offerPrice;
 //             task.acceptedBidMessage = acceptedBid.message || null;
 //             task.acceptedAt = now;
-//             task.totalAmount = bidAmountInCents;
 
+//             // Store detailed payment breakdown
 //             task.payment = {
 //                 paymentIntentId: paymentIntent.id,
 //                 status: 'held',
-//                 grossAmount: bidAmountInCents,
-//                 platformFee: platformFee,
-//                 taskerPayout: taskerPayout,
 //                 currency: 'cad',
 //                 authorizedAt: now,
+//                 feeStructure: 'client-10-5-13_tasker-12-13',
+
+//                 // Amounts in cents for precision
+//                 bidAmountCents: bidAmountInCents,
+
+//                 // Client-side fees
+//                 clientPlatformFeeCents: clientPlatformFeeInCents,
+//                 reservationFeeCents: reservationFeeInCents,
+//                 clientTaxCents: clientTaxInCents,
+//                 totalClientPaysCents: totalClientPaysInCents,
+
+//                 // Tasker-side deductions
+//                 taskerPlatformFeeCents: taskerPlatformFeeInCents,
+//                 taskerTaxCents: taskerTaxInCents,
+//                 taskerPayoutCents: taskerPayoutInCents,
+
+//                 // Platform revenue
+//                 applicationFeeCents: applicationFeeInCents,
+
+//                 // Dollars for easy reading
+//                 bidAmount: bidAmountInCents / 100,
+//                 clientPlatformFee: clientPlatformFeeInCents / 100,
+//                 reservationFee: reservationFeeInCents / 100,
+//                 clientTax: clientTaxInCents / 100,
+//                 totalClientPays: totalClientPaysInCents / 100,
+//                 taskerPlatformFee: taskerPlatformFeeInCents / 100,
+//                 taskerTax: taskerTaxInCents / 100,
+//                 taskerPayout: taskerPayoutInCents / 100,
+//                 applicationFee: applicationFeeInCents / 100,
 //             };
 
 //             task.acceptedBid = {
@@ -2625,7 +3421,6 @@ export const createPaymentIntent = async (req, res) => {
 //             console.log("✅ Task updated successfully");
 
 //         } catch (dbError) {
-//             // ⭐ CRITICAL: Database failed, CANCEL the PaymentIntent!
 //             console.error("❌ Database error, cancelling PaymentIntent:", dbError);
 
 //             try {
@@ -2633,7 +3428,6 @@ export const createPaymentIntent = async (req, res) => {
 //                 console.log("✅ PaymentIntent cancelled due to DB error");
 //             } catch (cancelError) {
 //                 console.error("❌ Failed to cancel PaymentIntent:", cancelError);
-//                 // Log this for manual review
 //             }
 
 //             return res.status(500).json({
@@ -2642,18 +3436,16 @@ export const createPaymentIntent = async (req, res) => {
 //             });
 //         }
 
-//         // ==================== NOTIFICATIONS (non-critical) ====================
-
+//         // ==================== NOTIFICATIONS ====================
 //         const clientName = `${client.firstName} ${client.lastName}`;
 //         const tasker = await User.findById(taskerId).select("firstName lastName");
 //         const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "The tasker";
 
-//         // Wrap notifications in try-catch (don't fail the request if notifications fail)
 //         try {
 //             await createNotification(
 //                 taskerId,
 //                 "🎉 Your Bid Was Accepted!",
-//                 `${clientName} accepted your bid of $${acceptedBid.offerPrice} for "${task.taskTitle}".`,
+//                 `${clientName} accepted your bid of $${acceptedBid.offerPrice} for "${task.taskTitle}". You will receive $${(taskerPayoutInCents / 100).toFixed(2)} upon completion (after 12% platform fee + 13% tax).`,
 //                 "bid-accepted",
 //                 task._id
 //             );
@@ -2665,7 +3457,7 @@ export const createPaymentIntent = async (req, res) => {
 //             await createNotification(
 //                 req.user.id,
 //                 "Bid Accepted",
-//                 `You accepted ${taskerName}'s bid of $${acceptedBid.offerPrice}.`,
+//                 `You accepted ${taskerName}'s bid of $${acceptedBid.offerPrice}. Total charged: $${(totalClientPaysInCents / 100).toFixed(2)} (including 10% platform fee + $5 reservation + 13% HST).`,
 //                 "bid-accept-confirmed",
 //                 task._id
 //             );
@@ -2695,7 +3487,6 @@ export const createPaymentIntent = async (req, res) => {
 //         }
 
 //         // ==================== SUCCESS RESPONSE ====================
-
 //         return res.status(200).json({
 //             success: true,
 //             message: "Bid accepted successfully",
@@ -2705,18 +3496,31 @@ export const createPaymentIntent = async (req, res) => {
 //                 acceptedBy: task.acceptedBy,
 //             },
 //             paymentBreakdown: {
-//                 total: bidAmountInCents / 100,
-//                 platformFee: platformFee / 100,
-//                 taskerPayout: taskerPayout / 100,
+//                 bidAmount: bidAmountInCents / 100,
+
+//                 // Client side
+//                 clientPlatformFee: clientPlatformFeeInCents / 100,
+//                 reservationFee: reservationFeeInCents / 100,
+//                 clientTax: clientTaxInCents / 100,
+//                 totalClientPays: totalClientPaysInCents / 100,
+
+//                 // Tasker side
+//                 taskerPlatformFee: taskerPlatformFeeInCents / 100,
+//                 taskerTax: taskerTaxInCents / 100,
+//                 taskerPayout: taskerPayoutInCents / 100,
+
+//                 // Platform
+//                 platformTotal: applicationFeeInCents / 100,
+
 //                 currency: 'CAD',
-//                 status: 'authorized'  // Money held, not captured
+//                 status: 'authorized',
+//                 feeStructure: 'client-10-5-13_tasker-12-13'
 //             }
 //         });
 
 //     } catch (error) {
 //         console.error("❌ Unexpected error:", error);
 
-//         // ⭐ If PaymentIntent was created, cancel it
 //         if (paymentIntent?.id) {
 //             try {
 //                 await stripe.paymentIntents.cancel(paymentIntent.id);
@@ -2735,43 +3539,451 @@ export const createPaymentIntent = async (req, res) => {
 // };
 
 
-// Fee constants
-const PLATFORM_FEE_PERCENT = 0.15;  // 15%
-const TAX_PERCENT = 0.13;           // 13% HST
+// export const acceptBidByClient = async (req, res) => {
+//     let paymentIntent = null;
+
+//     try {
+//         const { id: taskId } = req.params;
+//         const { taskerId, paymentMethodId: providedPaymentMethodId } = req.body;
+
+//         console.log("📥 Accept bid request:", { taskId, taskerId });
+
+//         // ==================== VALIDATION PHASE ====================
+//         const task = await Task.findById(taskId).populate('client');
+//         if (!task) {
+//             return res.status(404).json({ error: "Task not found" });
+//         }
+
+//         if (task.client._id.toString() !== req.user.id) {
+//             return res.status(403).json({ error: "You are not authorized" });
+//         }
+
+//         if (task.status !== "pending") {
+//             return res.status(400).json({ error: "Task already accepted or completed" });
+//         }
+
+//         const acceptedBid = task.bids.find(bid => bid.taskerId.toString() === taskerId);
+//         if (!acceptedBid) {
+//             return res.status(404).json({ error: "Bid not found for this tasker" });
+//         }
+
+//         // Validate tasker can receive payments
+//         let taskerStripeAccountId;
+//         try {
+//             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
+//         } catch (connectError) {
+//             return res.status(400).json({
+//                 error: connectError.message,
+//                 code: 'TASKER_PAYMENT_NOT_SETUP',
+//             });
+//         }
+
+//         // Get client and validate payment method
+//         let client = await User.findById(task.client._id);
+//         let paymentMethodId = providedPaymentMethodId || client.defaultPaymentMethodId;
+
+//         if (!paymentMethodId) {
+//             return res.status(400).json({
+//                 message: 'No payment method provided.',
+//                 code: 'NO_PAYMENT_METHOD'
+//             });
+//         }
+
+//         // Verify payment method exists and get customer
+//         let customerId = client.stripeCustomerId;
+
+//         try {
+//             const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+
+//             if (!paymentMethod.customer) {
+//                 if (!customerId) {
+//                     const customer = await stripe.customers.create({
+//                         email: client.email,
+//                         name: `${client.firstName} ${client.lastName}`,
+//                         metadata: { userId: client._id.toString() }
+//                     });
+//                     customerId = customer.id;
+//                 }
+
+//                 await stripe.paymentMethods.attach(paymentMethodId, {
+//                     customer: customerId,
+//                 });
+//             } else {
+//                 customerId = paymentMethod.customer;
+//             }
+
+//             client.stripeCustomerId = customerId;
+//             client.defaultPaymentMethodId = paymentMethodId;
+//             await client.save();
+
+//         } catch (pmError) {
+//             console.error("Payment method error:", pmError);
+//             return res.status(400).json({
+//                 message: 'Invalid payment method. Please add a new card.',
+//                 code: 'INVALID_PAYMENT_METHOD'
+//             });
+//         }
+
+//         // ==================== FEE CALCULATION ====================
+//         const bidAmountInCents = Math.round(acceptedBid.offerPrice * 100);
+
+//         // CLIENT SIDE FEES
+//         const clientPlatformFeeCents = Math.round(bidAmountInCents * CLIENT_PLATFORM_FEE_PERCENT);
+//         const reservationFeeCents = RESERVATION_FEE_CENTS;
+//         const clientTaxCents = Math.round(bidAmountInCents * CLIENT_TAX_PERCENT);
+//         const totalClientPaysCents = bidAmountInCents + clientPlatformFeeCents + reservationFeeCents + clientTaxCents;
+
+//         // TASKER SIDE FEES
+//         const taskerPlatformFeeCents = Math.round(bidAmountInCents * TASKER_PLATFORM_FEE_PERCENT);
+//         const taskerTaxCents = Math.round(bidAmountInCents * TASKER_TAX_PERCENT);
+//         const taskerPayoutCents = bidAmountInCents - taskerPlatformFeeCents - taskerTaxCents;
+
+//         // PLATFORM REVENUE
+//         const applicationFeeCents = totalClientPaysCents - taskerPayoutCents;
+
+//         console.log("💰 Payment Breakdown:");
+//         console.log(`   Bid Amount: $${(bidAmountInCents / 100).toFixed(2)}`);
+//         console.log(`   Client Pays: $${(totalClientPaysCents / 100).toFixed(2)}`);
+//         console.log(`   Tasker Gets: $${(taskerPayoutCents / 100).toFixed(2)}`);
+//         console.log(`   Platform Keeps: $${(applicationFeeCents / 100).toFixed(2)}`);
+
+//         // Validation
+//         if (totalClientPaysCents < 50) {
+//             return res.status(400).json({
+//                 message: 'Total amount too small. Minimum is $0.50 CAD',
+//                 code: 'AMOUNT_TOO_SMALL'
+//             });
+//         }
+
+//         if (taskerPayoutCents < 0) {
+//             return res.status(400).json({
+//                 message: 'Bid amount too small to cover fees',
+//                 code: 'BID_TOO_SMALL'
+//             });
+//         }
+
+//         // ==================== PAYMENT PHASE ====================
+//         try {
+//             paymentIntent = await stripe.paymentIntents.create({
+//                 amount: totalClientPaysCents,
+//                 currency: 'cad',
+//                 customer: customerId,
+//                 payment_method: paymentMethodId,
+//                 capture_method: 'manual',
+
+//                 description: `Task: ${task.taskTitle} - Bid: $${acceptedBid.offerPrice}`,
+
+//                 application_fee_amount: applicationFeeCents,
+
+//                 transfer_data: {
+//                     destination: taskerStripeAccountId,
+//                 },
+
+//                 metadata: {
+//                     taskId: task._id.toString(),
+//                     taskerId: taskerId,
+//                     clientId: client._id.toString(),
+//                     bidAmount: (bidAmountInCents / 100).toString(),
+//                     totalClientPays: (totalClientPaysCents / 100).toString(),
+//                     taskerPayout: (taskerPayoutCents / 100).toString(),
+//                     feeStructure: 'client-10-5-13_tasker-12-13',
+//                 },
+
+//                 automatic_payment_methods: {
+//                     enabled: true,
+//                     allow_redirects: 'never'
+//                 },
+//                 confirm: true,
+//             });
+
+//             console.log("✅ PaymentIntent created:", paymentIntent.id, "Status:", paymentIntent.status);
+
+//         } catch (stripeError) {
+//             console.error("❌ Stripe error:", stripeError);
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed: ' + stripeError.message,
+//                 code: 'STRIPE_ERROR'
+//             });
+//         }
+
+//         if (paymentIntent.status !== 'requires_capture') {
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (e) {
+//                 console.error("Failed to cancel PaymentIntent:", e);
+//             }
+
+//             return res.status(400).json({
+//                 message: 'Payment authorization failed',
+//                 status: paymentIntent.status,
+//                 error: paymentIntent.last_payment_error?.message
+//             });
+//         }
+
+//         // ==================== DATABASE UPDATE ====================
+//         try {
+//             const now = new Date();
+
+//             // Update task
+//             task.acceptedBy = taskerId;
+//             task.status = "in progress";
+//             task.paymentIntentId = paymentIntent.id;
+//             task.stripeStatus = 'authorized';
+//             task.acceptedBidAmount = acceptedBid.offerPrice;
+//             task.acceptedBidMessage = acceptedBid.message || null;
+//             task.acceptedAt = now;
+
+//             // ⭐ Set payment object with all fields
+//             task.payment = {
+//                 paymentIntentId: paymentIntent.id,
+//                 status: 'held',
+//                 currency: 'cad',
+//                 feeStructure: 'client-10-5-13_tasker-12-13',
+//                 authorizedAt: now,
+
+//                 // Bid amount
+//                 bidAmount: bidAmountInCents / 100,
+//                 bidAmountCents: bidAmountInCents,
+
+//                 // Client fees
+//                 clientPlatformFee: clientPlatformFeeCents / 100,
+//                 clientPlatformFeeCents: clientPlatformFeeCents,
+//                 reservationFee: reservationFeeCents / 100,
+//                 reservationFeeCents: reservationFeeCents,
+//                 clientTax: clientTaxCents / 100,
+//                 clientTaxCents: clientTaxCents,
+//                 totalClientPays: totalClientPaysCents / 100,
+//                 totalClientPaysCents: totalClientPaysCents,
+
+//                 // Tasker deductions
+//                 taskerPlatformFee: taskerPlatformFeeCents / 100,
+//                 taskerPlatformFeeCents: taskerPlatformFeeCents,
+//                 taskerTax: taskerTaxCents / 100,
+//                 taskerTaxCents: taskerTaxCents,
+//                 taskerPayout: taskerPayoutCents / 100,
+//                 taskerPayoutCents: taskerPayoutCents,
+
+//                 // Platform revenue
+//                 applicationFee: applicationFeeCents / 100,
+//                 applicationFeeCents: applicationFeeCents,
+
+//                 // Legacy fields
+//                 grossAmount: totalClientPaysCents / 100,
+//                 platformFee: applicationFeeCents / 100,
+//             };
+
+//             // Set accepted bid info
+//             task.acceptedBid = {
+//                 taskerId: acceptedBid.taskerId,
+//                 offerPrice: acceptedBid.offerPrice,
+//                 message: acceptedBid.message || null,
+//                 acceptedAt: now
+//             };
+
+//             // Update bid status
+//             const bidIndex = task.bids.findIndex(b => b.taskerId.toString() === taskerId);
+//             if (bidIndex !== -1) {
+//                 task.bids[bidIndex].status = 'accepted';
+//             }
+
+//             await task.save();
+//             console.log("✅ Task updated successfully");
+
+//         } catch (dbError) {
+//             console.error("❌ Database error:", dbError);
+
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (cancelError) {
+//                 console.error("Failed to cancel PaymentIntent:", cancelError);
+//             }
+
+//             return res.status(500).json({
+//                 message: 'Failed to update task. Payment was not charged.',
+//                 code: 'DATABASE_ERROR'
+//             });
+//         }
+
+//         // ==================== NOTIFICATIONS ====================
+//         const clientName = `${client.firstName} ${client.lastName}`;
+//         const tasker = await User.findById(taskerId).select("firstName lastName");
+//         const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "The tasker";
+
+//         try {
+//             await createNotification(
+//                 taskerId,
+//                 "🎉 Your Bid Was Accepted!",
+//                 `${clientName} accepted your bid of $${acceptedBid.offerPrice} for "${task.taskTitle}". You will receive $${(taskerPayoutCents / 100).toFixed(2)} upon completion.`,
+//                 "bid-accepted",
+//                 task._id
+//             );
+
+//             await createNotification(
+//                 req.user.id,
+//                 "Bid Accepted",
+//                 `You accepted ${taskerName}'s bid of $${acceptedBid.offerPrice}. Total: $${(totalClientPaysCents / 100).toFixed(2)}.`,
+//                 "bid-accept-confirmed",
+//                 task._id
+//             );
+//         } catch (e) {
+//             console.error("Notification error:", e);
+//         }
+
+//         // ==================== SUCCESS RESPONSE ====================
+//         return res.status(200).json({
+//             success: true,
+//             message: "Bid accepted successfully",
+//             task: {
+//                 _id: task._id,
+//                 status: task.status,
+//                 acceptedBy: task.acceptedBy,
+//             },
+//             paymentBreakdown: {
+//                 bidAmount: bidAmountInCents / 100,
+//                 clientPlatformFee: clientPlatformFeeCents / 100,
+//                 reservationFee: reservationFeeCents / 100,
+//                 clientTax: clientTaxCents / 100,
+//                 totalClientPays: totalClientPaysCents / 100,
+//                 taskerPlatformFee: taskerPlatformFeeCents / 100,
+//                 taskerTax: taskerTaxCents / 100,
+//                 taskerPayout: taskerPayoutCents / 100,
+//                 platformTotal: applicationFeeCents / 100,
+//                 currency: 'CAD',
+//                 status: 'authorized',
+//             }
+//         });
+
+//     } catch (error) {
+//         console.error("❌ Unexpected error:", error);
+
+//         if (paymentIntent?.id) {
+//             try {
+//                 await stripe.paymentIntents.cancel(paymentIntent.id);
+//             } catch (cancelError) {
+//                 console.error("Failed to cancel PaymentIntent:", cancelError);
+//             }
+//         }
+
+//         return res.status(500).json({
+//             success: false,
+//             error: "Failed to accept bid",
+//             details: error.message
+//         });
+//     }
+// };
 
 export const acceptBidByClient = async (req, res) => {
     let paymentIntent = null;
+    const { id: taskId } = req.params;
+    const { taskerId, paymentMethodId: providedPaymentMethodId } = req.body;
 
     try {
-        const { id: taskId } = req.params;
-        const { taskerId, paymentMethodId: providedPaymentMethodId } = req.body;
-
-        console.log("📥 Accept bid request:", req.body);
+        console.log("📥 Accept bid request:", { taskId, taskerId });
 
         // ==================== VALIDATION PHASE ====================
         const task = await Task.findById(taskId).populate('client');
         if (!task) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: req.user,
+                req,
+                taskId,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task not found",
+                    errorCode: "TASK_NOT_FOUND",
+                },
+            });
+
             return res.status(404).json({ error: "Task not found" });
         }
 
         if (task.client._id.toString() !== req.user.id) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized - not the task owner",
+                    errorCode: "UNAUTHORIZED",
+                    taskOwnerId: task.client._id.toString(),
+                    requesterId: req.user.id,
+                },
+            });
+
             return res.status(403).json({ error: "You are not authorized" });
         }
 
         if (task.status !== "pending") {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task already accepted or completed",
+                    errorCode: "INVALID_STATUS",
+                    currentStatus: task.status,
+                },
+            });
+
             return res.status(400).json({ error: "Task already accepted or completed" });
         }
 
         const acceptedBid = task.bids.find(bid => bid.taskerId.toString() === taskerId);
         if (!acceptedBid) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Bid not found for this tasker",
+                    errorCode: "BID_NOT_FOUND",
+                    totalBids: task.bids.length,
+                },
+            });
+
             return res.status(404).json({ error: "Bid not found for this tasker" });
         }
+
+        // Get tasker details
+        const tasker = await User.findById(taskerId).select("firstName lastName email");
+        const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "The tasker";
 
         // Validate tasker can receive payments
         let taskerStripeAccountId;
         try {
             taskerStripeAccountId = await validateTaskerCanReceivePayments(taskerId);
         } catch (connectError) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                status: "failure",
+                metadata: {
+                    errorMessage: connectError.message,
+                    errorCode: "TASKER_PAYMENT_NOT_SETUP",
+                    taskerEmail: tasker?.email,
+                },
+            });
+
             return res.status(400).json({
                 error: connectError.message,
                 code: 'TASKER_PAYMENT_NOT_SETUP',
@@ -2783,6 +3995,23 @@ export const acceptBidByClient = async (req, res) => {
         let paymentMethodId = providedPaymentMethodId || client.defaultPaymentMethodId;
 
         if (!paymentMethodId) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                status: "failure",
+                metadata: {
+                    errorMessage: "No payment method provided",
+                    errorCode: "NO_PAYMENT_METHOD",
+                    clientEmail: client.email,
+                },
+            });
+
             return res.status(400).json({
                 message: 'No payment method provided.',
                 code: 'NO_PAYMENT_METHOD'
@@ -2818,105 +4047,125 @@ export const acceptBidByClient = async (req, res) => {
 
         } catch (pmError) {
             console.error("Payment method error:", pmError);
+
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid payment method",
+                    errorCode: "INVALID_PAYMENT_METHOD",
+                    stripeError: pmError.message,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Invalid payment method. Please add a new card.',
                 code: 'INVALID_PAYMENT_METHOD'
             });
         }
 
-        // ==================== ⭐ CALCULATE AMOUNTS (DOUBLE-SIDED FEE) ====================
+        // ==================== FEE CALCULATION ====================
         const bidAmountInCents = Math.round(acceptedBid.offerPrice * 100);
 
-        // ⭐ CLIENT-SIDE: 15% platform fee ADDED to bid amount
-        const clientPlatformFeeInCents = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+        // CLIENT SIDE FEES
+        const clientPlatformFeeCents = Math.round(bidAmountInCents * CLIENT_PLATFORM_FEE_PERCENT);
+        const reservationFeeCents = RESERVATION_FEE_CENTS;
+        const clientTaxCents = Math.round(bidAmountInCents * CLIENT_TAX_PERCENT);
+        const totalClientPaysCents = bidAmountInCents + clientPlatformFeeCents + reservationFeeCents + clientTaxCents;
 
-        // Tax (HST) on the client's platform fee
-        const taxOnClientFeeInCents = Math.round(clientPlatformFeeInCents * TAX_PERCENT);
+        // TASKER SIDE FEES
+        const taskerPlatformFeeCents = Math.round(bidAmountInCents * TASKER_PLATFORM_FEE_PERCENT);
+        const taskerTaxCents = Math.round(bidAmountInCents * TASKER_TAX_PERCENT);
+        const taskerPayoutCents = bidAmountInCents - taskerPlatformFeeCents - taskerTaxCents;
 
-        // ⭐ TOTAL CLIENT PAYS = Bid Amount + Client Fee + Tax
-        const totalClientPaysInCents = bidAmountInCents + clientPlatformFeeInCents + taxOnClientFeeInCents;
+        // PLATFORM REVENUE
+        const applicationFeeCents = totalClientPaysCents - taskerPayoutCents;
 
-        // ⭐ TASKER-SIDE: 15% platform fee DEDUCTED from bid amount
-        const taskerPlatformFeeInCents = Math.round(bidAmountInCents * PLATFORM_FEE_PERCENT);
+        console.log("💰 Payment Breakdown:");
+        console.log(`   Bid Amount: $${(bidAmountInCents / 100).toFixed(2)}`);
+        console.log(`   Client Pays: $${(totalClientPaysCents / 100).toFixed(2)}`);
+        console.log(`   Tasker Gets: $${(taskerPayoutCents / 100).toFixed(2)}`);
+        console.log(`   Platform Keeps: $${(applicationFeeCents / 100).toFixed(2)}`);
 
-        // ⭐ TASKER RECEIVES = Bid Amount - Tasker Fee
-        const taskerPayoutInCents = bidAmountInCents - taskerPlatformFeeInCents;
+        // Validation
+        if (totalClientPaysCents < 50) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                totalAmount: totalClientPaysCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Total amount too small",
+                    errorCode: "AMOUNT_TOO_SMALL",
+                    minimumRequired: 50,
+                },
+            });
 
-        // ⭐ APPLICATION FEE (what platform keeps) = Total Client Pays - Tasker Payout
-        // This equals: Client Fee + Tax + Tasker Fee
-        const applicationFeeInCents = totalClientPaysInCents - taskerPayoutInCents;
-
-        // For logging: breakdown of platform revenue
-        const totalPlatformRevenueInCents = clientPlatformFeeInCents + taskerPlatformFeeInCents;
-
-        console.log("💰 DOUBLE-SIDED FEE Payment Breakdown:");
-        console.log(`   ┌─────────────────────────────────────────────────┐`);
-        console.log(`   │ Bid Amount:              $${(bidAmountInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   ├─────────────────────────────────────────────────┤`);
-        console.log(`   │ CLIENT SIDE:`);
-        console.log(`   │   Platform Fee (15%):    $${(clientPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   Tax on Fee (13% HST):  $${(taxOnClientFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   ─────────────────────────────────────────────`);
-        console.log(`   │   TOTAL CLIENT PAYS:     $${(totalClientPaysInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   ├─────────────────────────────────────────────────┤`);
-        console.log(`   │ TASKER SIDE:`);
-        console.log(`   │   Platform Fee (15%):   -$${(taskerPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   ─────────────────────────────────────────────`);
-        console.log(`   │   TASKER RECEIVES:       $${(taskerPayoutInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   ├─────────────────────────────────────────────────┤`);
-        console.log(`   │ PLATFORM KEEPS:`);
-        console.log(`   │   From Client:           $${(clientPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   From Tasker:           $${(taskerPlatformFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   Tax Collected:         $${(taxOnClientFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   │   ─────────────────────────────────────────────`);
-        console.log(`   │   TOTAL PLATFORM:        $${(applicationFeeInCents / 100).toFixed(2).padStart(8)}`);
-        console.log(`   └─────────────────────────────────────────────────┘`);
-
-        if (totalClientPaysInCents < 50) {
             return res.status(400).json({
-                message: 'Minimum bid amount is $0.50 CAD',
+                message: 'Total amount too small. Minimum is $0.50 CAD',
                 code: 'AMOUNT_TOO_SMALL'
             });
         }
 
-        console.log("✅ All validations passed, creating PaymentIntent...");
+        if (taskerPayoutCents < 0) {
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                taskerPayout: taskerPayoutCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Bid amount too small to cover fees",
+                    errorCode: "BID_TOO_SMALL",
+                },
+            });
+
+            return res.status(400).json({
+                message: 'Bid amount too small to cover fees',
+                code: 'BID_TOO_SMALL'
+            });
+        }
 
         // ==================== PAYMENT PHASE ====================
         try {
             paymentIntent = await stripe.paymentIntents.create({
-                // ⭐ Charge the TOTAL amount (bid + client fee + tax)
-                amount: totalClientPaysInCents,
+                amount: totalClientPaysCents,
                 currency: 'cad',
                 customer: customerId,
                 payment_method: paymentMethodId,
-                capture_method: 'manual',  // Hold, don't capture yet
-
-                description: `Task: ${task.taskTitle} - Bid: $${acceptedBid.offerPrice} (+ fees)`,
-
-                // ⭐ Platform keeps this amount (client fee + tax + tasker fee)
-                application_fee_amount: applicationFeeInCents,
-
-                // ⭐ Tasker receives the remainder (bid minus their 15%)
+                capture_method: 'manual',
+                description: `Task: ${task.taskTitle} - Bid: $${acceptedBid.offerPrice}`,
+                application_fee_amount: applicationFeeCents,
                 transfer_data: {
                     destination: taskerStripeAccountId,
                 },
-
                 metadata: {
                     taskId: task._id.toString(),
                     taskerId: taskerId,
                     clientId: client._id.toString(),
-
-                    // Store all amounts for reference
                     bidAmount: (bidAmountInCents / 100).toString(),
-                    clientPlatformFee: (clientPlatformFeeInCents / 100).toString(),
-                    taxOnClientFee: (taxOnClientFeeInCents / 100).toString(),
-                    totalClientPays: (totalClientPaysInCents / 100).toString(),
-                    taskerPlatformFee: (taskerPlatformFeeInCents / 100).toString(),
-                    taskerPayout: (taskerPayoutInCents / 100).toString(),
-                    platformTotal: (applicationFeeInCents / 100).toString(),
-                    feeStructure: 'double-sided-15-percent',
+                    totalClientPays: (totalClientPaysCents / 100).toString(),
+                    taskerPayout: (taskerPayoutCents / 100).toString(),
+                    feeStructure: 'client-10-5-13_tasker-12-13',
                 },
-
                 automatic_payment_methods: {
                     enabled: true,
                     allow_redirects: 'never'
@@ -2924,11 +4173,69 @@ export const acceptBidByClient = async (req, res) => {
                 confirm: true,
             });
 
-            console.log("✅ PaymentIntent created:", paymentIntent.id);
-            console.log("   Status:", paymentIntent.status);
+            console.log("✅ PaymentIntent created:", paymentIntent.id, "Status:", paymentIntent.status);
+
+            // ✅ Log payment authorization
+            await logPayment({
+                action: "PAYMENT_AUTHORIZED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: totalClientPaysCents,
+                paymentIntentId: paymentIntent.id,
+                status: "success",
+                metadata: {
+                    bidAcceptance: true,
+                    bidAmount: acceptedBid.offerPrice,
+                    taskerId,
+                    taskerName,
+                    taskerPayout: taskerPayoutCents / 100,
+                    applicationFee: applicationFeeCents / 100,
+                    stripeAccountId: taskerStripeAccountId,
+                },
+            });
 
         } catch (stripeError) {
             console.error("❌ Stripe error:", stripeError);
+
+            // ✅ Log payment failure
+            await logPayment({
+                action: "PAYMENT_FAILED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                amount: totalClientPaysCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: stripeError.message,
+                    errorCode: stripeError.code,
+                    errorType: stripeError.type,
+                    bidAcceptance: true,
+                    bidAmount: acceptedBid.offerPrice,
+                },
+            });
+
+            // Also log bid acceptance failure
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                totalAmount: totalClientPaysCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization failed",
+                    errorCode: "STRIPE_ERROR",
+                    stripeError: stripeError.message,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Payment authorization failed: ' + stripeError.message,
                 code: 'STRIPE_ERROR'
@@ -2942,6 +4249,24 @@ export const acceptBidByClient = async (req, res) => {
                 console.error("Failed to cancel PaymentIntent:", e);
             }
 
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                totalAmount: totalClientPaysCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Payment authorization failed - unexpected status",
+                    paymentStatus: paymentIntent.status,
+                    lastPaymentError: paymentIntent.last_payment_error?.message,
+                },
+            });
+
             return res.status(400).json({
                 message: 'Payment authorization failed',
                 status: paymentIntent.status,
@@ -2949,10 +4274,11 @@ export const acceptBidByClient = async (req, res) => {
             });
         }
 
-        // ==================== DATABASE UPDATE PHASE ====================
+        // ==================== DATABASE UPDATE ====================
         try {
             const now = new Date();
 
+            // Update task
             task.acceptedBy = taskerId;
             task.status = "in progress";
             task.paymentIntentId = paymentIntent.id;
@@ -2961,39 +4287,34 @@ export const acceptBidByClient = async (req, res) => {
             task.acceptedBidMessage = acceptedBid.message || null;
             task.acceptedAt = now;
 
-            // ⭐ Store detailed payment breakdown (double-sided fee structure)
+            // Set payment object
             task.payment = {
                 paymentIntentId: paymentIntent.id,
                 status: 'held',
                 currency: 'cad',
+                feeStructure: 'client-10-5-13_tasker-12-13',
                 authorizedAt: now,
-                feeStructure: 'double-sided-15-percent',
-
-                // Amounts in cents for precision
-                bidAmountCents: bidAmountInCents,
-
-                // Client-side fees
-                clientPlatformFeeCents: clientPlatformFeeInCents,
-                taxOnClientFeeCents: taxOnClientFeeInCents,
-                totalClientPaysCents: totalClientPaysInCents,
-
-                // Tasker-side fees
-                taskerPlatformFeeCents: taskerPlatformFeeInCents,
-                taskerPayoutCents: taskerPayoutInCents,
-
-                // Platform revenue
-                applicationFeeCents: applicationFeeInCents,
-
-                // Also store in dollars for easy reading
                 bidAmount: bidAmountInCents / 100,
-                clientPlatformFee: clientPlatformFeeInCents / 100,
-                taxOnClientFee: taxOnClientFeeInCents / 100,
-                totalClientPays: totalClientPaysInCents / 100,
-                taskerPlatformFee: taskerPlatformFeeInCents / 100,
-                taskerPayout: taskerPayoutInCents / 100,
-                applicationFee: applicationFeeInCents / 100,
+                bidAmountCents: bidAmountInCents,
+                clientPlatformFee: clientPlatformFeeCents / 100,
+                clientPlatformFeeCents: clientPlatformFeeCents,
+                reservationFee: reservationFeeCents / 100,
+                reservationFeeCents: reservationFeeCents,
+                clientTax: clientTaxCents / 100,
+                clientTaxCents: clientTaxCents,
+                totalClientPays: totalClientPaysCents / 100,
+                totalClientPaysCents: totalClientPaysCents,
+                taskerPlatformFee: taskerPlatformFeeCents / 100,
+                taskerPlatformFeeCents: taskerPlatformFeeCents,
+                taskerTax: taskerTaxCents / 100,
+                taskerTaxCents: taskerTaxCents,
+                taskerPayout: taskerPayoutCents / 100,
+                taskerPayoutCents: taskerPayoutCents,
+                applicationFee: applicationFeeCents / 100,
+                applicationFeeCents: applicationFeeCents,
             };
 
+            // Set accepted bid info
             task.acceptedBid = {
                 taskerId: acceptedBid.taskerId,
                 offerPrice: acceptedBid.offerPrice,
@@ -3001,18 +4322,42 @@ export const acceptBidByClient = async (req, res) => {
                 acceptedAt: now
             };
 
+            // Update bid status
+            const bidIndex = task.bids.findIndex(b => b.taskerId.toString() === taskerId);
+            if (bidIndex !== -1) {
+                task.bids[bidIndex].status = 'accepted';
+            }
+
             await task.save();
             console.log("✅ Task updated successfully");
 
         } catch (dbError) {
-            console.error("❌ Database error, cancelling PaymentIntent:", dbError);
+            console.error("❌ Database error:", dbError);
 
             try {
                 await stripe.paymentIntents.cancel(paymentIntent.id);
-                console.log("✅ PaymentIntent cancelled due to DB error");
             } catch (cancelError) {
-                console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+                console.error("Failed to cancel PaymentIntent:", cancelError);
             }
+
+            await logBidAcceptance({
+                action: "BID_ACCEPTED",
+                user: { ...req.user, ...client.toObject() },
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                taskerId,
+                taskerName,
+                bidAmount: acceptedBid.offerPrice,
+                totalAmount: totalClientPaysCents,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Database error - task not updated",
+                    errorCode: "DATABASE_ERROR",
+                    dbError: dbError.message,
+                    paymentIntentCancelled: true,
+                },
+            });
 
             return res.status(500).json({
                 message: 'Failed to update task. Payment was not charged.',
@@ -3020,54 +4365,101 @@ export const acceptBidByClient = async (req, res) => {
             });
         }
 
+        // ✅ Log successful bid acceptance
+        await logBidAcceptance({
+            action: "BID_ACCEPTED",
+            user: { ...req.user, ...client.toObject() },
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            bidId: acceptedBid._id?.toString(),
+            taskerId,
+            taskerName,
+            bidAmount: acceptedBid.offerPrice,
+            totalAmount: totalClientPaysCents,
+            taskerPayout: taskerPayoutCents,
+            status: "success",
+            metadata: {
+                // Payment details
+                paymentIntentId: paymentIntent.id,
+                clientPlatformFee: clientPlatformFeeCents / 100,
+                reservationFee: reservationFeeCents / 100,
+                clientTax: clientTaxCents / 100,
+                taskerPlatformFee: taskerPlatformFeeCents / 100,
+                taskerTax: taskerTaxCents / 100,
+                applicationFee: applicationFeeCents / 100,
+
+                // Task details
+                previousStatus: "pending",
+                newStatus: "in progress",
+                totalBidsOnTask: task.bids.length,
+                bidMessage: acceptedBid.message?.substring(0, 200),
+
+                // User details
+                clientEmail: client.email,
+                taskerEmail: tasker?.email,
+                taskerStripeAccountId,
+            },
+        });
+
+        // Also log the bid being accepted (from bid perspective)
+        await logBid({
+            action: "BID_ACCEPTED",
+            user: tasker,
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            bidId: acceptedBid._id?.toString(),
+            offerPrice: acceptedBid.offerPrice,
+            status: "success",
+            metadata: {
+                acceptedBy: client._id.toString(),
+                acceptedByName: `${client.firstName} ${client.lastName}`,
+                taskerPayout: taskerPayoutCents / 100,
+            },
+        });
+
         // ==================== NOTIFICATIONS ====================
         const clientName = `${client.firstName} ${client.lastName}`;
-        const tasker = await User.findById(taskerId).select("firstName lastName");
-        const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "The tasker";
 
         try {
             await createNotification(
                 taskerId,
                 "🎉 Your Bid Was Accepted!",
-                `${clientName} accepted your bid of $${acceptedBid.offerPrice} for "${task.taskTitle}". You will receive $${(taskerPayoutInCents / 100).toFixed(2)} upon completion (after 15% platform fee).`,
+                `${clientName} accepted your bid of $${acceptedBid.offerPrice} for "${task.taskTitle}". You will receive $${(taskerPayoutCents / 100).toFixed(2)} upon completion.`,
                 "bid-accepted",
                 task._id
             );
-        } catch (e) {
-            console.error("Notification error:", e);
-        }
 
-        try {
             await createNotification(
                 req.user.id,
                 "Bid Accepted",
-                `You accepted ${taskerName}'s bid of $${acceptedBid.offerPrice}. Total charged: $${(totalClientPaysInCents / 100).toFixed(2)} (including 15% platform fee + tax).`,
+                `You accepted ${taskerName}'s bid of $${acceptedBid.offerPrice}. Total: $${(totalClientPaysCents / 100).toFixed(2)}.`,
                 "bid-accept-confirmed",
                 task._id
             );
-        } catch (e) {
-            console.error("Notification error:", e);
-        }
 
-        // Notify rejected bidders
-        try {
-            const rejectedBidderIds = [...new Set(
-                task.bids
-                    .map(bid => bid.taskerId.toString())
-                    .filter(id => id !== taskerId)
-            )];
+            // Notify other bidders that they weren't selected
+            if (task.bids && task.bids.length > 1) {
+                const otherBidderIds = [...new Set(
+                    task.bids
+                        .map(bid => bid.taskerId.toString())
+                        .filter(id => id !== taskerId)
+                )];
 
-            for (const bidderId of rejectedBidderIds) {
-                await createNotification(
-                    bidderId,
-                    "Bid Not Selected",
-                    `Your bid for "${task.taskTitle}" was not selected.`,
-                    "bid-rejected",
-                    task._id
-                );
+                for (const bidderId of otherBidderIds) {
+                    await createNotification(
+                        bidderId,
+                        "Bid Not Selected",
+                        `Another bid was selected for "${task.taskTitle}". Keep bidding on other tasks!`,
+                        "bid-not-selected",
+                        task._id
+                    );
+                }
+                console.log(`✅ Notified ${otherBidderIds.length} other bidders`);
             }
         } catch (e) {
-            console.error("Rejected bidders notification error:", e);
+            console.error("Notification error:", e);
         }
 
         // ==================== SUCCESS RESPONSE ====================
@@ -3081,22 +4473,16 @@ export const acceptBidByClient = async (req, res) => {
             },
             paymentBreakdown: {
                 bidAmount: bidAmountInCents / 100,
-
-                // Client side
-                clientPlatformFee: clientPlatformFeeInCents / 100,
-                taxOnClientFee: taxOnClientFeeInCents / 100,
-                totalClientPays: totalClientPaysInCents / 100,
-
-                // Tasker side
-                taskerPlatformFee: taskerPlatformFeeInCents / 100,
-                taskerPayout: taskerPayoutInCents / 100,
-
-                // Platform
-                platformTotal: applicationFeeInCents / 100,
-
+                clientPlatformFee: clientPlatformFeeCents / 100,
+                reservationFee: reservationFeeCents / 100,
+                clientTax: clientTaxCents / 100,
+                totalClientPays: totalClientPaysCents / 100,
+                taskerPlatformFee: taskerPlatformFeeCents / 100,
+                taskerTax: taskerTaxCents / 100,
+                taskerPayout: taskerPayoutCents / 100,
+                platformTotal: applicationFeeCents / 100,
                 currency: 'CAD',
                 status: 'authorized',
-                feeStructure: 'double-sided-15-percent'
             }
         });
 
@@ -3106,11 +4492,26 @@ export const acceptBidByClient = async (req, res) => {
         if (paymentIntent?.id) {
             try {
                 await stripe.paymentIntents.cancel(paymentIntent.id);
-                console.log("✅ PaymentIntent cancelled due to error");
             } catch (cancelError) {
-                console.error("❌ Failed to cancel PaymentIntent:", cancelError);
+                console.error("Failed to cancel PaymentIntent:", cancelError);
             }
         }
+
+        // ✅ Log unexpected error
+        await logBidAcceptance({
+            action: "BID_ACCEPTED",
+            user: req.user,
+            req,
+            taskId,
+            taskerId,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+                paymentIntentCancelled: !!paymentIntent?.id,
+            },
+        });
 
         return res.status(500).json({
             success: false,
@@ -3121,78 +4522,75 @@ export const acceptBidByClient = async (req, res) => {
 };
 
 
+// export const requestCompletionByTasker = async (req, res) => {
+//     try {
+//         const { id: taskId } = req.params;
 
+//         const task = await Task.findById(taskId);
+//         if (!task) return res.status(404).json({ error: "Task not found" });
 
+//         if (task.status !== "in progress") {
+//             return res.status(400).json({ error: "Task is not in progress" });
+//         }
 
-export const requestCompletionByTasker = async (req, res) => {
-    try {
-        const { id: taskId } = req.params;
+//         task.status = "requested";
+//         await task.save();
 
-        const task = await Task.findById(taskId);
-        if (!task) return res.status(404).json({ error: "Task not found" });
+//         // Create notification for the client (completion requested) - non-blocking
+//         try {
+//             // FIX: Get tasker details from database to ensure we have the name
+//             const tasker = await User.findById(req.user.id).select("firstName lastName");
 
-        if (task.status !== "in progress") {
-            return res.status(400).json({ error: "Task is not in progress" });
-        }
+//             if (!tasker) {
+//                 console.error("Tasker not found for notification");
+//             }
 
-        task.status = "requested";
-        await task.save();
+//             const taskerName = tasker
+//                 ? `${tasker.firstName} ${tasker.lastName}`
+//                 : "The tasker";
 
-        // Create notification for the client (completion requested) - non-blocking
-        try {
-            // FIX: Get tasker details from database to ensure we have the name
-            const tasker = await User.findById(req.user.id).select("firstName lastName");
+//             // Debug: Log notification details
+//             console.log("Creating completion request notification:", {
+//                 clientId: task.client,
+//                 taskerName,
+//                 taskTitle: task.taskTitle,
+//                 taskId: task._id
+//             });
 
-            if (!tasker) {
-                console.error("Tasker not found for notification");
-            }
+//             // Notify the client about completion request
+//             await createNotification(
+//                 task.client, // Client ID (task owner)
+//                 "Completion Requested",
+//                 `${taskerName} has requested completion for "${task.taskTitle}". Please review the work and approve to release payment.`,
+//                 "completion-requested",
+//                 task._id
+//             );
+//             console.log("✅ Notification created for client - completion request");
 
-            const taskerName = tasker
-                ? `${tasker.firstName} ${tasker.lastName}`
-                : "The tasker";
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+//         }
 
-            // Debug: Log notification details
-            console.log("Creating completion request notification:", {
-                clientId: task.client,
-                taskerName,
-                taskTitle: task.taskTitle,
-                taskId: task._id
-            });
+//         // Optional: Send confirmation notification to tasker
+//         try {
+//             await createNotification(
+//                 req.user.id, // Tasker ID
+//                 "Completion Request Sent",
+//                 `Your completion request for "${task.taskTitle}" has been sent to the client. Waiting for approval.`,
+//                 "completion-request-sent",
+//                 task._id
+//             );
+//             console.log("✅ Confirmation notification sent to tasker");
+//         } catch (notifErr) {
+//             console.error("❌ Failed to create tasker confirmation notification:", notifErr);
+//         }
 
-            // Notify the client about completion request
-            await createNotification(
-                task.client, // Client ID (task owner)
-                "Completion Requested",
-                `${taskerName} has requested completion for "${task.taskTitle}". Please review the work and approve to release payment.`,
-                "completion-requested",
-                task._id
-            );
-            console.log("✅ Notification created for client - completion request");
-
-        } catch (notifErr) {
-            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
-        }
-
-        // Optional: Send confirmation notification to tasker
-        try {
-            await createNotification(
-                req.user.id, // Tasker ID
-                "Completion Request Sent",
-                `Your completion request for "${task.taskTitle}" has been sent to the client. Waiting for approval.`,
-                "completion-request-sent",
-                task._id
-            );
-            console.log("✅ Confirmation notification sent to tasker");
-        } catch (notifErr) {
-            console.error("❌ Failed to create tasker confirmation notification:", notifErr);
-        }
-
-        res.status(200).json({ message: "Completion requested", task });
-    } catch (error) {
-        console.error("Error requesting completion:", error);
-        res.status(500).json({ error: "Failed to request completion", details: error.message });
-    }
-};
+//         res.status(200).json({ message: "Completion requested", task });
+//     } catch (error) {
+//         console.error("Error requesting completion:", error);
+//         res.status(500).json({ error: "Failed to request completion", details: error.message });
+//     }
+// };
 
 
 // Decline by tasker
@@ -3277,6 +4675,158 @@ export const requestCompletionByTasker = async (req, res) => {
 //         res.status(500).json({ error: "Failed to decline task", details: error.message });
 //     }
 // };
+
+export const requestCompletionByTasker = async (req, res) => {
+    const { id: taskId } = req.params;
+
+    try {
+        const task = await Task.findById(taskId);
+        if (!task) {
+            // ✅ Log failed completion request - task not found
+            await logTaskCompletion({
+                action: "COMPLETION_REQUESTED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task not found",
+                    errorCode: "TASK_NOT_FOUND",
+                },
+            });
+
+            return res.status(404).json({ error: "Task not found" });
+        }
+
+        if (task.status !== "in progress") {
+            // ✅ Log failed completion request - wrong status
+            await logTaskCompletion({
+                action: "COMPLETION_REQUESTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task is not in progress",
+                    errorCode: "INVALID_STATUS",
+                    currentStatus: task.status,
+                },
+            });
+
+            return res.status(400).json({ error: "Task is not in progress" });
+        }
+
+        // Check if the requester is the assigned tasker
+        if (task.acceptedBy?.toString() !== req.user.id) {
+            await logTaskCompletion({
+                action: "COMPLETION_REQUESTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized - not the assigned tasker",
+                    errorCode: "UNAUTHORIZED",
+                    assignedTaskerId: task.acceptedBy?.toString(),
+                    requesterId: req.user.id,
+                },
+            });
+
+            return res.status(403).json({ error: "You are not authorized to request completion for this task" });
+        }
+
+        const previousStatus = task.status;
+        task.status = "requested";
+        task.completionRequestedAt = new Date();
+        await task.save();
+
+        // Get tasker details
+        const tasker = await User.findById(req.user.id).select("firstName lastName email");
+        const taskerName = tasker ? `${tasker.firstName} ${tasker.lastName}` : "The tasker";
+
+        // ✅ Log successful completion request
+        await logTaskCompletion({
+            action: "COMPLETION_REQUESTED",
+            user: { ...req.user, ...tasker?.toObject() },
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            taskerId: req.user.id,
+            taskerName,
+            clientId: task.client.toString(),
+            amount: task.totalAmount,
+            status: "success",
+            metadata: {
+                previousStatus,
+                newStatus: "requested",
+                completionRequestedAt: task.completionRequestedAt,
+                serviceTitle: task.serviceTitle,
+                taskerEmail: tasker?.email,
+                paymentIntentId: task.paymentIntentId,
+            },
+        });
+
+        // Notify the client
+        try {
+            console.log("Creating completion request notification:", {
+                clientId: task.client,
+                taskerName,
+                taskTitle: task.taskTitle,
+                taskId: task._id
+            });
+
+            await createNotification(
+                task.client,
+                "Completion Requested",
+                `${taskerName} has requested completion for "${task.taskTitle}". Please review the work and approve to release payment.`,
+                "completion-requested",
+                task._id
+            );
+            console.log("✅ Notification created for client - completion request");
+
+        } catch (notifErr) {
+            console.error("❌ Failed to create client notification (non-blocking):", notifErr);
+        }
+
+        // Confirmation notification to tasker
+        try {
+            await createNotification(
+                req.user.id,
+                "Completion Request Sent",
+                `Your completion request for "${task.taskTitle}" has been sent to the client. Waiting for approval.`,
+                "completion-request-sent",
+                task._id
+            );
+            console.log("✅ Confirmation notification sent to tasker");
+        } catch (notifErr) {
+            console.error("❌ Failed to create tasker confirmation notification:", notifErr);
+        }
+
+        res.status(200).json({ message: "Completion requested", task });
+    } catch (error) {
+        console.error("Error requesting completion:", error);
+
+        // ✅ Log unexpected error
+        await logTaskCompletion({
+            action: "COMPLETION_REQUESTED",
+            user: req.user,
+            req,
+            taskId,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+            },
+        });
+
+        res.status(500).json({ error: "Failed to request completion", details: error.message });
+    }
+};
+
+
 
 export const declineByTasker = async (req, res) => {
     try {
@@ -3653,6 +5203,10 @@ export const getUnreadCount = async (req, res) => {
 
 
 
+
+
+// controllers/taskController.js
+
 // export const updateTaskStatusByClient = async (req, res) => {
 //     try {
 //         const { taskId } = req.params;
@@ -3665,7 +5219,6 @@ export const getUnreadCount = async (req, res) => {
 //         const task = await Task.findById(taskId).populate('acceptedBy');
 //         if (!task) return res.status(404).json({ error: "Task not found" });
 
-//         // Verify the client is the task owner
 //         if (task.client.toString() !== req.user.id) {
 //             return res.status(403).json({ error: "You are not authorized to update this task status" });
 //         }
@@ -3674,23 +5227,47 @@ export const getUnreadCount = async (req, res) => {
 //         task.status = status;
 
 //         let stripeActionMsg = '';
-//         let paymentAmount = task.totalAmount ? (task.totalAmount / 100).toFixed(2) : '0.00';
+//         const paymentAmount = task.totalAmount ? (task.totalAmount / 100).toFixed(2) : '0.00';
 
-//         if (task.paymentIntentId) {
+//         // ⭐ NEW: Get payment breakdown from task
+//         const platformFee = task.payment?.platformFee || 0;
+//         const taskerPayout = task.payment?.taskerPayout || 0;
+//         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
+
+//         const paymentIntentId = task.payment?.paymentIntentId || task.paymentIntentId;
+
+//         if (paymentIntentId) {
 //             if (status === "completed") {
-//                 // Capture full amount
-//                 const paymentIntent = await stripe.paymentIntents.capture(task.paymentIntentId);
+//                 // ⭐ Capture the payment - Stripe automatically splits it!
+//                 const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
+
 //                 if (paymentIntent.status === 'succeeded') {
 //                     task.stripeStatus = 'captured';
-//                     stripeActionMsg = `Payment of $${paymentAmount} has been captured and will be transferred to your account.`;
+//                     task.payment.status = 'captured';
+//                     task.payment.capturedAt = new Date();
+
+//                     // ⭐ The split happens automatically!
+//                     // - $platformFee goes to your Stripe account
+//                     // - $taskerPayout goes to tasker's connected account
+//                     // - Stripe then auto-deposits to tasker's bank
+
+//                     stripeActionMsg = `Payment of $${paymentAmount} has been captured. $${taskerPayoutFormatted} will be transferred to your account automatically.`;
+
+//                     console.log("✅ Payment captured with automatic split:");
+//                     console.log("  Platform Fee:", platformFee / 100);
+//                     console.log("  Tasker Payout:", taskerPayout / 100);
+
 //                 } else {
 //                     return res.status(400).json({ message: 'Capture failed' });
 //                 }
+
 //             } else if (status === "not completed") {
 //                 // Cancel and release hold
-//                 const paymentIntent = await stripe.paymentIntents.cancel(task.paymentIntentId);
+//                 const paymentIntent = await stripe.paymentIntents.cancel(paymentIntentId);
+
 //                 if (paymentIntent.status === 'canceled') {
 //                     task.stripeStatus = 'canceled';
+//                     task.payment.status = 'cancelled';
 //                     stripeActionMsg = 'The payment hold has been canceled and funds released.';
 //                 } else {
 //                     return res.status(400).json({ message: 'Cancellation failed' });
@@ -3700,41 +5277,33 @@ export const getUnreadCount = async (req, res) => {
 
 //         await task.save();
 
-//         // FIX: Get client details from database
-//         const client = await User.findById(req.user.id).select("firstName lastName");
-//         const clientName = client
-//             ? `${client.firstName} ${client.lastName}`
-//             : "The client";
+//         // ⭐ Update tasker stats with earnings
+//         if (status === "completed") {
+//             const taskerId = task.acceptedBy?._id || task.acceptedBy;
+//             await User.findByIdAndUpdate(taskerId, {
+//                 $inc: {
+//                     'stats.tasksCompleted': 1,
+//                     'stats.totalEarnings': taskerPayout, // in cents
+//                 }
+//             });
+//         }
 
-//         // Get tasker ID safely
+//         // Notifications (your existing code with updated message)
+//         const client = await User.findById(req.user.id).select("firstName lastName");
+//         const clientName = client ? `${client.firstName} ${client.lastName}` : "The client";
 //         const taskerId = task.acceptedBy?._id || task.acceptedBy;
 
-//         // Create notification for tasker based on status
 //         try {
 //             if (taskerId) {
-//                 // Debug: Log notification details
-//                 console.log("Creating status update notification:", {
-//                     taskerId,
-//                     clientName,
-//                     status,
-//                     previousStatus,
-//                     taskTitle: task.taskTitle,
-//                     stripeActionMsg
-//                 });
-
 //                 if (status === "completed") {
-//                     // Task completed - positive notification 🎉
 //                     await createNotification(
 //                         taskerId,
-//                         "🎉 Task Completed Successfully!",
-//                         `Great news! ${clientName} has approved your work for "${task.taskTitle}". ${stripeActionMsg}`,
+//                         "🎉 Task Completed - Payment Released!",
+//                         `${clientName} has approved your work for "${task.taskTitle}". $${taskerPayoutFormatted} has been released to your account and will be deposited to your bank automatically.`,
 //                         "task-completed",
 //                         task._id
 //                     );
-//                     console.log("✅ Task completed notification sent to tasker");
-
 //                 } else if (status === "not completed") {
-//                     // Task not completed - rejection notification
 //                     await createNotification(
 //                         taskerId,
 //                         "Task Marked as Not Completed",
@@ -3742,81 +5311,101 @@ export const getUnreadCount = async (req, res) => {
 //                         "completion-declined",
 //                         task._id
 //                     );
-//                     console.log("✅ Completion declined notification sent to tasker");
 //                 }
-//             } else {
-//                 console.error("No tasker ID found for notification");
 //             }
 //         } catch (notifErr) {
-//             console.error("❌ Failed to create tasker notification (non-blocking):", notifErr);
+//             console.error("❌ Failed to create tasker notification:", notifErr);
 //         }
 
-//         // Send confirmation notification to client
+//         // Client notification
 //         try {
-//             let clientConfirmationMsg = "";
-//             let clientConfirmationTitle = "";
-
-//             if (status === "completed") {
-//                 clientConfirmationTitle = "Task Approved Successfully";
-//                 clientConfirmationMsg = `You have approved the completion of "${task.taskTitle}". Payment of $${paymentAmount} has been processed.`;
-//             } else {
-//                 clientConfirmationTitle = "Task Marked as Incomplete";
-//                 clientConfirmationMsg = `You have marked "${task.taskTitle}" as not completed. ${stripeActionMsg} The task has been updated.`;
-//             }
+//             let clientMsg = status === "completed"
+//                 ? `You have approved the completion of "${task.taskTitle}". Payment of $${paymentAmount} has been processed.`
+//                 : `You have marked "${task.taskTitle}" as not completed. ${stripeActionMsg}`;
 
 //             await createNotification(
-//                 req.user.id, // Client ID
-//                 clientConfirmationTitle,
-//                 clientConfirmationMsg,
+//                 req.user.id,
+//                 status === "completed" ? "Task Approved Successfully" : "Task Marked as Incomplete",
+//                 clientMsg,
 //                 "status-update-confirmed",
 //                 task._id
 //             );
-//             console.log("✅ Confirmation notification sent to client");
-
 //         } catch (notifErr) {
-//             console.error("❌ Failed to create client confirmation notification:", notifErr);
+//             console.error("❌ Failed to create client notification:", notifErr);
 //         }
 
-//         // Optional: If task completed, prompt client to leave a review
-//         if (status === "completed") {
-//             try {
-//                 await createNotification(
-//                     req.user.id, // Client ID
-//                     "Leave a Review",
-//                     `How was your experience with the tasker for "${task.taskTitle}"? Leave a review to help others!`,
-//                     "review-prompt",
-//                     task._id
-//                 );
-//                 console.log("✅ Review prompt notification sent to client");
+//         res.status(200).json({
+//             message: `Task marked as ${status}`,
+//             task,
+//             paymentInfo: status === "completed" ? {
+//                 captured: paymentAmount,
+//                 platformFee: platformFee / 100,
+//                 taskerPayout: taskerPayoutFormatted,
+//             } : null
+//         });
 
-//             } catch (notifErr) {
-//                 console.error("❌ Failed to create review prompt notification:", notifErr);
-//             }
-//         }
-
-//         res.status(200).json({ message: `Task marked as ${status}`, task });
 //     } catch (error) {
 //         console.error("Error updating task status:", error);
 //         res.status(500).json({ error: "Failed to update status", details: error.message });
 //     }
 // };
 
-
-// controllers/taskController.js
-
 export const updateTaskStatusByClient = async (req, res) => {
-    try {
-        const { taskId } = req.params;
-        const { status } = req.body;
+    const { taskId } = req.params;
+    const { status } = req.body;
 
+    try {
         if (!["completed", "not completed"].includes(status)) {
+            // ✅ Log invalid status
+            await logTaskCompletion({
+                action: status === "completed" ? "COMPLETION_APPROVED" : "COMPLETION_REJECTED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Invalid status value",
+                    errorCode: "INVALID_STATUS",
+                    providedStatus: status,
+                },
+            });
+
             return res.status(400).json({ error: "Invalid status value" });
         }
 
         const task = await Task.findById(taskId).populate('acceptedBy');
-        if (!task) return res.status(404).json({ error: "Task not found" });
+        if (!task) {
+            await logTaskCompletion({
+                action: status === "completed" ? "COMPLETION_APPROVED" : "COMPLETION_REJECTED",
+                user: req.user,
+                req,
+                taskId,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Task not found",
+                    errorCode: "TASK_NOT_FOUND",
+                },
+            });
+
+            return res.status(404).json({ error: "Task not found" });
+        }
 
         if (task.client.toString() !== req.user.id) {
+            await logTaskCompletion({
+                action: status === "completed" ? "COMPLETION_APPROVED" : "COMPLETION_REJECTED",
+                user: req.user,
+                req,
+                taskId: task._id.toString(),
+                taskTitle: task.taskTitle,
+                status: "failure",
+                metadata: {
+                    errorMessage: "Unauthorized - not the task owner",
+                    errorCode: "UNAUTHORIZED",
+                    taskOwnerId: task.client.toString(),
+                    requesterId: req.user.id,
+                },
+            });
+
             return res.status(403).json({ error: "You are not authorized to update this task status" });
         }
 
@@ -3826,70 +5415,199 @@ export const updateTaskStatusByClient = async (req, res) => {
         let stripeActionMsg = '';
         const paymentAmount = task.totalAmount ? (task.totalAmount / 100).toFixed(2) : '0.00';
 
-        // ⭐ NEW: Get payment breakdown from task
-        const platformFee = task.payment?.platformFee || 0;
-        const taskerPayout = task.payment?.taskerPayout || 0;
+        // Get payment breakdown
+        const platformFee = task.payment?.platformFee || task.payment?.applicationFee || 0;
+        const taskerPayout = task.payment?.taskerPayout || task.payment?.taskerPayoutCents || 0;
         const taskerPayoutFormatted = (taskerPayout / 100).toFixed(2);
 
         const paymentIntentId = task.payment?.paymentIntentId || task.paymentIntentId;
 
+        // Get client details
+        const client = await User.findById(req.user.id).select("firstName lastName email");
+        const clientName = client ? `${client.firstName} ${client.lastName}` : "The client";
+
+        // Get tasker details
+        const taskerId = task.acceptedBy?._id || task.acceptedBy;
+        const taskerUser = typeof task.acceptedBy === 'object' ? task.acceptedBy : await User.findById(taskerId);
+        const taskerName = taskerUser ? `${taskerUser.firstName} ${taskerUser.lastName}` : "The tasker";
+
         if (paymentIntentId) {
             if (status === "completed") {
-                // ⭐ Capture the payment - Stripe automatically splits it!
-                const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
+                try {
+                    // Capture the payment
+                    const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
 
-                if (paymentIntent.status === 'succeeded') {
-                    task.stripeStatus = 'captured';
-                    task.payment.status = 'captured';
-                    task.payment.capturedAt = new Date();
+                    if (paymentIntent.status === 'succeeded') {
+                        task.stripeStatus = 'captured';
+                        task.payment.status = 'captured';
+                        task.payment.capturedAt = new Date();
 
-                    // ⭐ The split happens automatically!
-                    // - $platformFee goes to your Stripe account
-                    // - $taskerPayout goes to tasker's connected account
-                    // - Stripe then auto-deposits to tasker's bank
+                        stripeActionMsg = `Payment of $${paymentAmount} has been captured. $${taskerPayoutFormatted} will be transferred to tasker's account.`;
 
-                    stripeActionMsg = `Payment of $${paymentAmount} has been captured. $${taskerPayoutFormatted} will be transferred to your account automatically.`;
+                        // ✅ Log successful payment capture
+                        await logPayment({
+                            action: "PAYMENT_CAPTURED",
+                            user: { ...req.user, ...client?.toObject() },
+                            req,
+                            taskId: task._id.toString(),
+                            taskTitle: task.taskTitle,
+                            amount: task.totalAmount,
+                            paymentIntentId,
+                            status: "success",
+                            metadata: {
+                                platformFee: platformFee / 100,
+                                taskerPayout: taskerPayout / 100,
+                                taskerId: taskerId?.toString(),
+                                taskerName,
+                                capturedAt: task.payment.capturedAt,
+                            },
+                        });
 
-                    console.log("✅ Payment captured with automatic split:");
-                    console.log("  Platform Fee:", platformFee / 100);
-                    console.log("  Tasker Payout:", taskerPayout / 100);
+                        console.log("✅ Payment captured with automatic split:");
+                        console.log("  Platform Fee:", platformFee / 100);
+                        console.log("  Tasker Payout:", taskerPayout / 100);
 
-                } else {
-                    return res.status(400).json({ message: 'Capture failed' });
+                    } else {
+                        // ✅ Log failed payment capture
+                        await logPayment({
+                            action: "PAYMENT_CAPTURED",
+                            user: { ...req.user, ...client?.toObject() },
+                            req,
+                            taskId: task._id.toString(),
+                            taskTitle: task.taskTitle,
+                            amount: task.totalAmount,
+                            paymentIntentId,
+                            status: "failure",
+                            metadata: {
+                                errorMessage: "Capture returned non-succeeded status",
+                                paymentStatus: paymentIntent.status,
+                            },
+                        });
+
+                        return res.status(400).json({ message: 'Capture failed' });
+                    }
+                } catch (stripeError) {
+                    // ✅ Log Stripe error during capture
+                    await logPayment({
+                        action: "PAYMENT_CAPTURED",
+                        user: { ...req.user, ...client?.toObject() },
+                        req,
+                        taskId: task._id.toString(),
+                        taskTitle: task.taskTitle,
+                        amount: task.totalAmount,
+                        paymentIntentId,
+                        status: "failure",
+                        metadata: {
+                            errorMessage: stripeError.message,
+                            stripeErrorCode: stripeError.code,
+                        },
+                    });
+
+                    return res.status(400).json({
+                        message: 'Payment capture failed',
+                        error: stripeError.message
+                    });
                 }
 
             } else if (status === "not completed") {
-                // Cancel and release hold
-                const paymentIntent = await stripe.paymentIntents.cancel(paymentIntentId);
+                try {
+                    // Cancel and release hold
+                    const paymentIntent = await stripe.paymentIntents.cancel(paymentIntentId);
 
-                if (paymentIntent.status === 'canceled') {
-                    task.stripeStatus = 'canceled';
-                    task.payment.status = 'cancelled';
-                    stripeActionMsg = 'The payment hold has been canceled and funds released.';
-                } else {
-                    return res.status(400).json({ message: 'Cancellation failed' });
+                    if (paymentIntent.status === 'canceled') {
+                        task.stripeStatus = 'canceled';
+                        task.payment.status = 'cancelled';
+                        task.payment.cancelledAt = new Date();
+                        stripeActionMsg = 'The payment hold has been canceled and funds released.';
+
+                        // ✅ Log payment cancellation
+                        await logPayment({
+                            action: "PAYMENT_FAILED",
+                            user: { ...req.user, ...client?.toObject() },
+                            req,
+                            taskId: task._id.toString(),
+                            taskTitle: task.taskTitle,
+                            amount: task.totalAmount,
+                            paymentIntentId,
+                            status: "success",
+                            metadata: {
+                                reason: "Task marked as not completed by client",
+                                cancelledAt: task.payment.cancelledAt,
+                                taskerId: taskerId?.toString(),
+                            },
+                        });
+
+                    } else {
+                        return res.status(400).json({ message: 'Cancellation failed' });
+                    }
+                } catch (stripeError) {
+                    // ✅ Log Stripe error during cancellation
+                    await logPayment({
+                        action: "PAYMENT_FAILED",
+                        user: { ...req.user, ...client?.toObject() },
+                        req,
+                        taskId: task._id.toString(),
+                        taskTitle: task.taskTitle,
+                        amount: task.totalAmount,
+                        paymentIntentId,
+                        status: "failure",
+                        metadata: {
+                            errorMessage: stripeError.message,
+                            stripeErrorCode: stripeError.code,
+                            action: "cancel",
+                        },
+                    });
+
+                    return res.status(400).json({
+                        message: 'Payment cancellation failed',
+                        error: stripeError.message
+                    });
                 }
             }
         }
 
+        task.completedAt = status === "completed" ? new Date() : null;
         await task.save();
 
-        // ⭐ Update tasker stats with earnings
+        // Update tasker stats with earnings
         if (status === "completed") {
-            const taskerId = task.acceptedBy?._id || task.acceptedBy;
             await User.findByIdAndUpdate(taskerId, {
                 $inc: {
                     'stats.tasksCompleted': 1,
-                    'stats.totalEarnings': taskerPayout, // in cents
+                    'stats.totalEarnings': taskerPayout,
                 }
             });
         }
 
-        // Notifications (your existing code with updated message)
-        const client = await User.findById(req.user.id).select("firstName lastName");
-        const clientName = client ? `${client.firstName} ${client.lastName}` : "The client";
-        const taskerId = task.acceptedBy?._id || task.acceptedBy;
+        // ✅ Log successful task completion/rejection
+        await logTaskCompletion({
+            action: status === "completed" ? "TASK_COMPLETED" : "TASK_NOT_COMPLETED",
+            user: { ...req.user, ...client?.toObject() },
+            req,
+            taskId: task._id.toString(),
+            taskTitle: task.taskTitle,
+            taskerId: taskerId?.toString(),
+            taskerName,
+            clientId: req.user.id,
+            clientName,
+            amount: task.totalAmount,
+            status: "success",
+            metadata: {
+                previousStatus,
+                newStatus: status,
+                paymentIntentId,
+                paymentStatus: task.payment?.status,
+                platformFee: platformFee / 100,
+                taskerPayout: taskerPayout / 100,
+                totalClientPaid: task.payment?.totalClientPays,
+                serviceTitle: task.serviceTitle,
+                completedAt: task.completedAt,
+                taskerEmail: taskerUser?.email,
+                clientEmail: client?.email,
+            },
+        });
 
+        // Notifications
         try {
             if (taskerId) {
                 if (status === "completed") {
@@ -3943,10 +5661,25 @@ export const updateTaskStatusByClient = async (req, res) => {
 
     } catch (error) {
         console.error("Error updating task status:", error);
+
+        // ✅ Log unexpected error
+        await logTaskCompletion({
+            action: status === "completed" ? "TASK_COMPLETED" : "TASK_NOT_COMPLETED",
+            user: req.user,
+            req,
+            taskId,
+            status: "failure",
+            metadata: {
+                errorMessage: error.message,
+                errorName: error.name,
+                errorStack: error.stack?.substring(0, 500),
+                attemptedStatus: status,
+            },
+        });
+
         res.status(500).json({ error: "Failed to update status", details: error.message });
     }
 };
-
 
 // code of update messages 
 

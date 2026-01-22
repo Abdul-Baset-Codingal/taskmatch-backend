@@ -1,182 +1,4 @@
-// // models/Task.js
-// import mongoose from "mongoose";
 
-// const MessageSchema = new mongoose.Schema(
-//   {
-//     sender: {
-//       type: mongoose.Schema.Types.ObjectId,
-//       ref: "User",
-//       required: true,
-//     },
-//     senderRole: {
-//       type: String,
-//       enum: ["client", "tasker"],
-//       required: true,
-//     },
-//     message: {
-//       type: String,
-//       required: true,
-//       trim: true,
-//       maxlength: [5000, "Message too long"],
-//     },
-//     isRead: {
-//       type: Boolean,
-//       default: false,
-//     },
-//     readAt: { type: Date },
-//     isBlocked: { type: Boolean, default: false },
-//     blockReason: { type: String },
-//     edited: { type: Boolean, default: false },
-//     isDeleted: { type: Boolean, default: false },
-//   },
-//   { timestamps: true }
-// );
-
-// const TaskSchema = new mongoose.Schema(
-//   {
-//     serviceId: { type: String, required: true },
-//     serviceTitle: { type: String, required: true },
-//     taskTitle: { type: String, required: true },
-//     taskDescription: { type: String, required: true },
-
-//     location: { type: String, required: true },
-//     photos: {
-//       type: [String],
-//       validate: [arr => arr.length <= 3, "Maximum 3 photos allowed"],
-//     },
-//     video: { type: String },
-//     schedule: {
-//       type: String,
-//       enum: ["Flexible", "Schedule"],
-//       required: true,
-//     },
-//     estimatedTime: {
-//       type: String,
-//       set: (v) => String(v),
-//     },
-//     extraCharge: { type: Boolean, default: false },
-//     price: { type: Number, required: true },
-//     totalAmount: { type: Number },
-//     additionalInfo: { type: String },
-//     offerDeadline: { type: Date },
-
-//     status: {
-//       type: String,
-//       enum: ["pending", "in progress", "completed", "requested", "not completed", "declined"],
-//       default: "pending",
-//     },
-//     stripeStatus: {
-//       type: String,
-//       enum: ["pending", "authorized", "captured", "canceled"],
-//       default: "pending",
-//     },
-//     paymentIntentId: { type: String },
-
-//     client: {
-//       type: mongoose.Schema.Types.ObjectId,
-//       ref: "User",
-//       required: true,
-//     },
-//     acceptedBy: {
-//       type: mongoose.Schema.Types.ObjectId,
-//       ref: "User",
-//       default: null,
-//     },
-
-//     // ✅ NEW: Accepted Bid Details
-//     acceptedBidAmount: {
-//       type: Number,
-//       default: null,
-//     },
-//     acceptedBidMessage: {
-//       type: String,
-//       default: null,
-//     },
-//     acceptedAt: {
-//       type: Date,
-//       default: null,
-//     },
-//     // Full accepted bid object for reference
-//     acceptedBid: {
-//       taskerId: {
-//         type: mongoose.Schema.Types.ObjectId,
-//         ref: "User",
-//       },
-//       offerPrice: Number,
-//       message: String,
-//       acceptedAt: Date,
-//     },
-
-//     comments: [
-//       {
-//         userId: {
-//           type: mongoose.Schema.Types.ObjectId,
-//           ref: "User",
-//           required: true,
-//         },
-//         role: {
-//           type: String,
-//           enum: ["tasker", "client"],
-//           required: true,
-//         },
-//         firstName: { type: String },
-//         lastName: { type: String },
-//         profilePicture: { type: String },
-//         message: { type: String, required: true },
-//         createdAt: { type: Date, default: Date.now },
-//         isBlocked: { type: Boolean, default: false },
-//         blockReason: { type: String },
-//         replies: [
-//           {
-//             userId: {
-//               type: mongoose.Schema.Types.ObjectId,
-//               ref: "User",
-//               required: true,
-//             },
-//             role: {
-//               type: String,
-//               enum: ["tasker", "client"],
-//               required: true,
-//             },
-//             firstName: { type: String },
-//             lastName: { type: String },
-//             profilePicture: { type: String },
-//             message: { type: String, required: true },
-//             createdAt: { type: Date, default: Date.now },
-//             isBlocked: { type: Boolean, default: false },
-//             blockReason: { type: String },
-//           },
-//         ],
-//       },
-//     ],
-//     bids: [
-//       {
-//         taskerId: {
-//           type: mongoose.Schema.Types.ObjectId,
-//           ref: "User",
-//           required: true,
-//         },
-//         offerPrice: { type: Number },
-//         message: { type: String },
-//         createdAt: { type: Date, default: Date.now },
-//       },
-//     ],
-//     messages: [MessageSchema],
-//   },
-//   { timestamps: true, strict: true }
-// );
-
-// // Indexes for better performance
-// TaskSchema.index({ client: 1, status: 1 });
-// TaskSchema.index({ acceptedBy: 1, status: 1 });
-// TaskSchema.index({ status: 1, createdAt: -1 });
-
-// // Clear cached model
-// if (mongoose.models.Task) {
-//   delete mongoose.models.Task;
-// }
-
-// export default mongoose.model("Task", TaskSchema);
 
 // models/Task.js
 import mongoose from "mongoose";
@@ -225,6 +47,79 @@ const BidSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// ⭐ NEW: Payment Schema with full fee breakdown
+const PaymentSchema = new mongoose.Schema({
+  // ─── STRIPE IDs ───
+  paymentIntentId: { type: String },
+  transferId: { type: String },
+  chargeId: { type: String },
+
+  // ─── STATUS ───
+  status: {
+    type: String,
+    enum: ["pending", "held", "captured", "released", "refunded", "failed", "cancelled"],
+    default: "pending",
+  },
+
+  // ─── FEE STRUCTURE TYPE ───
+  feeStructure: {
+    type: String,
+    default: "client-10-5-13_tasker-12-13"
+  },
+
+  // ─── BID AMOUNT (Base) ───
+  bidAmount: { type: Number },              // Original bid amount in dollars
+  bidAmountCents: { type: Number },         // Original bid amount in cents
+
+  // ─── CLIENT SIDE FEES (Added to bid) ───
+  clientPlatformFee: { type: Number },      // 10% of bid (dollars)
+  clientPlatformFeeCents: { type: Number }, // 10% of bid (cents)
+
+  reservationFee: { type: Number },         // $5 flat fee (dollars)
+  reservationFeeCents: { type: Number },    // $5 flat fee (cents)
+
+  clientTax: { type: Number },              // 13% HST (dollars)
+  clientTaxCents: { type: Number },         // 13% HST (cents)
+
+  totalClientPays: { type: Number },        // Total client pays (dollars)
+  totalClientPaysCents: { type: Number },   // Total client pays (cents)
+
+  // ─── TASKER SIDE FEES (Deducted from bid) ───
+  taskerPlatformFee: { type: Number },      // 12% of bid (dollars)
+  taskerPlatformFeeCents: { type: Number }, // 12% of bid (cents)
+
+  taskerTax: { type: Number },              // 13% tax (dollars)
+  taskerTaxCents: { type: Number },         // 13% tax (cents)
+
+  taskerPayout: { type: Number },           // What tasker receives (dollars)
+  taskerPayoutCents: { type: Number },      // What tasker receives (cents)
+
+  // ─── PLATFORM REVENUE ───
+  applicationFee: { type: Number },         // Total platform keeps (dollars)
+  applicationFeeCents: { type: Number },    // Total platform keeps (cents)
+
+  // ─── LEGACY FIELDS (for backwards compatibility) ───
+  grossAmount: { type: Number },            // Alias for totalClientPays
+  platformFee: { type: Number },            // Alias for applicationFee
+  stripeFee: { type: Number },              // Stripe processing fee
+
+  // ─── CURRENCY ───
+  currency: { type: String, default: "cad" },
+
+  // ─── TIMESTAMPS ───
+  authorizedAt: { type: Date },
+  capturedAt: { type: Date },
+  releasedAt: { type: Date },
+  refundedAt: { type: Date },
+  cancelledAt: { type: Date },
+
+  // ─── REFUND DETAILS ───
+  refundAmount: { type: Number },
+  refundAmountCents: { type: Number },
+  refundReason: { type: String },
+  refundId: { type: String },
+}, { _id: false });
+
 const TaskSchema = new mongoose.Schema(
   {
     // ==================== BASIC INFO ====================
@@ -254,7 +149,7 @@ const TaskSchema = new mongoose.Schema(
     offerDeadline: { type: Date },
 
     // ==================== PRICING ====================
-    price: { type: Number, required: true },           // Client's budget
+    price: { type: Number, required: true },
     extraCharge: { type: Boolean, default: false },
     additionalInfo: { type: String },
 
@@ -286,44 +181,16 @@ const TaskSchema = new mongoose.Schema(
       acceptedAt: Date,
     },
     acceptedBidAmount: { type: Number, default: null },
+    acceptedBidMessage: { type: String, default: null },
     acceptedAt: { type: Date, default: null },
 
     // ==================== BIDS ====================
     bids: [BidSchema],
 
-    // ==================== PAYMENT - STRIPE CONNECT ====================
-    payment: {
-      // Stripe IDs
-      paymentIntentId: { type: String },
-      transferId: { type: String },           // Transfer to tasker
-      chargeId: { type: String },
+    // ==================== ⭐ PAYMENT - NEW STRUCTURE ====================
+    payment: PaymentSchema,
 
-      // Status
-      status: {
-        type: String,
-        enum: ["pending", "held", "captured", "refunded", "failed", "cancelled"],
-        default: "pending",
-      },
-
-      // Amounts (in cents for precision)
-      grossAmount: { type: Number },          // Total amount charged to client
-      platformFee: { type: Number },          // 15% to Taskallo
-      taskerPayout: { type: Number },         // 85% to Tasker
-      stripeFee: { type: Number },            // Stripe processing fee
-
-      currency: { type: String, default: "cad" },
-
-      // Timestamps
-      authorizedAt: { type: Date },
-      capturedAt: { type: Date },
-      refundedAt: { type: Date },
-
-      // Refund
-      refundAmount: { type: Number },
-      refundReason: { type: String },
-    },
-
-    // Keep for backwards compatibility
+    // ==================== LEGACY PAYMENT FIELDS ====================
     stripeStatus: {
       type: String,
       enum: ["pending", "authorized", "captured", "canceled"],
