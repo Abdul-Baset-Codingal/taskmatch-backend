@@ -23,6 +23,7 @@ import adminQuoteRoutes from './routes/adminQuoteRoutes.js';
 import adminDashboardPaymentRoutes from './routes/adminDashboardPaymentRoutes.js';
 import adminLogs from "./routes/adminLogRoutes.js"
 import blogRoutes from "./routes/blogRoutes.js";
+import walletRoutes from "./routes/walletRoutes.js";
 
 const app = express();
 
@@ -95,6 +96,7 @@ app.use('/api/admin/quotes', adminQuoteRoutes);
 app.use('/api/admin/dashboardPayments', adminDashboardPaymentRoutes);
 app.use('/api/admin/adminLogs', adminLogs);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/wallet", walletRoutes);
 
 
 app.get('/api/test', (req, res) => {

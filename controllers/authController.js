@@ -2261,6 +2261,162 @@ export const approveRejectTasker = async (req, res) => {
 
 
 
+// export const updateProfile = async (req, res) => {
+//     console.log("Received", req.method, "/api/auth/users/:id");
+//     console.log("Request body:", req.body);
+//     console.log("Authenticated user ID:", req.user?._id);
+//     console.log("Target user ID:", req.params.id);
+
+//     try {
+//         const userId = req.params.id;
+
+//         // 🔹 Find the user (fetch full doc to preserve roles)
+//         const user = await User.findById(userId);
+//         if (!user) {
+//             console.log("User not found for ID:", userId);
+//             return res.status(404).json({ error: "User not found" });
+//         }
+
+//         console.log("Pre-update roles:", user.roles);  // Log before
+
+//         // UPDATED: Ignore userId in body (redundant) - Fixed destructuring to avoid redeclaration
+//         const { email, password, rating, reviewCount, role: incomingRole, ...otherData } = req.body;
+//         let updateData = { ...otherData };
+
+//         // 🔹 Handle role switch specifically (treat 'role' as currentRole)
+//         const newRole = incomingRole; // From { role: 'tasker' } or { role: 'client' }
+//         let isRoleSwitch = false;
+//         if (newRole) {
+//             isRoleSwitch = true;
+//             console.log(`Role switch requested to: ${newRole}`);
+
+//             // Always ensure 'client' is in roles (default behavior)
+//             let validRoles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
+//                 role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+//             );
+
+//             if (newRole === 'tasker') {
+//                 // For tasker switch: Check if profile is complete
+//                 const missingFields = computeMissingFields(user);
+//                 if (missingFields.length > 0 || !user.taskerProfileCheck) {
+//                     console.log("Tasker switch blocked - missing fields:", missingFields);
+//                     return res.status(400).json({
+//                         message: "Tasker profile incomplete. Please complete required fields first.",
+//                         missingFields
+//                     });
+//                 }
+//                 // Add 'tasker' to roles if not present
+//                 validRoles = [...new Set([...validRoles, 'tasker'])];
+//                 console.log("Tasker switch approved - roles now:", validRoles);
+//             } else if (newRole === 'client') {
+//                 // Client switch always allowed, no additional checks
+//                 console.log("Client switch approved - roles:", validRoles);
+//             }
+
+//             // Set roles and currentRole
+//             updateData.roles = validRoles;
+//             updateData.currentRole = newRole;
+//         }
+
+//         // 🔹 Log document fields for debugging (profile updates)
+//         if (!isRoleSwitch) {
+//             console.log("Document fields in payload:", {
+//                 idType: updateData.idType,
+//                 passportUrl: updateData.passportUrl,
+//                 governmentIdFront: updateData.governmentIdFront,
+//                 governmentIdBack: updateData.governmentIdBack,
+//                 insuranceDocument: updateData.insuranceDocument,
+//                 profilePicture: updateData.profilePicture,
+//                 backgroundCheckConsent: updateData.backgroundCheckConsent,
+//             });
+//         }
+
+//         // 🔹 CRITICAL: Preserve/validate roles (prevents [null] corruption) - only if not set by role switch
+//         if (!updateData.roles && !isRoleSwitch) {
+//             // Don't touch roles if not provided—preserve existing (always include 'client')
+//             updateData.roles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
+//                 role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+//             );
+//             console.log("Preserving roles (not in payload):", updateData.roles);
+//         }
+
+//         // 🔹 Email uniqueness check (unchanged)
+//         if (email && email !== user.email) {
+//             const existingEmail = await User.findOne({ email });
+//             if (existingEmail && existingEmail._id.toString() !== userId) {
+//                 console.log("Email already in use:", email);
+//                 return res.status(400).json({ error: "Email already in use" });
+//             }
+//         }
+
+//         // 🔹 Add email/password to updateData (unchanged)
+//         if (email) updateData.email = email;
+//         if (password) {
+//             updateData.password = await bcrypt.hash(password, 10);
+//         }
+
+//         // 🔹 Update with explicit $set (avoids schema resets)
+//         let updatedUser = await User.findByIdAndUpdate(
+//             userId,
+//             { $set: updateData },  // Only set explicit fields
+//             { new: true, runValidators: true }
+//         ).select('-password');
+
+//         // 🔹 NEW: After profile update (not role switch), check if tasker profile is now complete
+//         if (!isRoleSwitch && (updateData.idType || updateData.passportUrl || updateData.governmentIdFront || updateData.governmentIdBack || updateData.issueDate || updateData.expiryDate || updateData.backgroundCheckConsent)) {
+//             // Re-fetch to get latest fields
+//             updatedUser = await User.findById(userId).select('-password');
+//             const isComplete = isTaskerProfileComplete(updatedUser);
+//             if (isComplete && !updatedUser.taskerProfileCheck) {
+//                 console.log("Tasker profile now complete - updating flags and adding tasker role");
+//                 // Ensure both roles
+//                 const validRoles = [...new Set([...(updatedUser.roles || ['client']), 'client', 'tasker'])].filter(role =>
+//                     role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
+//                 );
+//                 await User.findByIdAndUpdate(userId, {
+//                     $set: {
+//                         taskerProfileCheck: true,
+//                         roles: validRoles
+//                     }
+//                 });
+//                 // Re-fetch updated user
+//                 updatedUser = await User.findById(userId).select('-password');
+//             }
+//         }
+
+//         console.log("Post-update roles:", updatedUser.roles);  // Log after
+//         console.log("Post-update currentRole:", updatedUser.currentRole);
+
+//         // 🔹 Notification
+//         try {
+//             const notificationTitle = isRoleSwitch
+//                 ? `Switched to ${newRole.charAt(0).toUpperCase() + newRole.slice(1)} Mode`
+//                 : "Profile Updated Successfully";
+//             const notificationMessage = isRoleSwitch
+//                 ? `You have successfully switched to ${newRole} mode. Switch back anytime via the navbar.`
+//                 : "Your profile has been updated. If tasker requirements are met, you can now switch to Tasker mode.";
+//             await createNotification(
+//                 req.user?._id || userId,
+//                 notificationTitle,
+//                 notificationMessage,
+//                 isRoleSwitch ? "role-switch" : "profile-update"
+//             );
+//             console.log("Notification created for", isRoleSwitch ? "role switch" : "profile update");
+//         } catch (notifErr) {
+//             console.error("Failed to create notification (non-blocking):", notifErr);
+//         }
+
+//         return res.status(200).json({ message: "User updated successfully", user: updatedUser });
+//     } catch (error) {
+//         console.error("Update user error:", error);
+//         return res.status(500).json({
+//             error: "Failed to update user",
+//             details: error.message,
+//         });
+//     }
+// };
+
+
 export const updateProfile = async (req, res) => {
     console.log("Received", req.method, "/api/auth/users/:id");
     console.log("Request body:", req.body);
@@ -2277,26 +2433,35 @@ export const updateProfile = async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
-        console.log("Pre-update roles:", user.roles);  // Log before
+        console.log("Pre-update roles:", user.roles);
 
         // UPDATED: Ignore userId in body (redundant) - Fixed destructuring to avoid redeclaration
-        const { email, password, rating, reviewCount, role: incomingRole, ...otherData } = req.body;
+        const {
+            email,
+            password,
+            rating,
+            reviewCount,
+            role: incomingRole,
+            bankAccount,        // ⭐ NEW: Extract bankAccount
+            idVerification,     // ⭐ Extract nested objects
+            insurance,          // ⭐ Extract nested objects
+            ...otherData
+        } = req.body;
+
         let updateData = { ...otherData };
 
         // 🔹 Handle role switch specifically (treat 'role' as currentRole)
-        const newRole = incomingRole; // From { role: 'tasker' } or { role: 'client' }
+        const newRole = incomingRole;
         let isRoleSwitch = false;
         if (newRole) {
             isRoleSwitch = true;
             console.log(`Role switch requested to: ${newRole}`);
 
-            // Always ensure 'client' is in roles (default behavior)
             let validRoles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
                 role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
             );
 
             if (newRole === 'tasker') {
-                // For tasker switch: Check if profile is complete
                 const missingFields = computeMissingFields(user);
                 if (missingFields.length > 0 || !user.taskerProfileCheck) {
                     console.log("Tasker switch blocked - missing fields:", missingFields);
@@ -2305,42 +2470,130 @@ export const updateProfile = async (req, res) => {
                         missingFields
                     });
                 }
-                // Add 'tasker' to roles if not present
                 validRoles = [...new Set([...validRoles, 'tasker'])];
                 console.log("Tasker switch approved - roles now:", validRoles);
             } else if (newRole === 'client') {
-                // Client switch always allowed, no additional checks
                 console.log("Client switch approved - roles:", validRoles);
             }
 
-            // Set roles and currentRole
             updateData.roles = validRoles;
             updateData.currentRole = newRole;
+        }
+
+        // ⭐ NEW: Handle Bank Account Update
+        if (bankAccount) {
+            console.log("💳 Bank account update received:", {
+                accountHolderName: bankAccount.accountHolderName,
+                bankName: bankAccount.bankName,
+                accountType: bankAccount.accountType,
+                hasAccountNumber: !!bankAccount.accountNumber,
+                hasRoutingNumber: !!bankAccount.routingNumber,
+            });
+
+            // Validate required fields
+            if (!bankAccount.accountHolderName || !bankAccount.accountNumber ||
+                !bankAccount.routingNumber || !bankAccount.bankName) {
+                return res.status(400).json({
+                    error: "Incomplete bank account information",
+                    message: "Please provide all required bank account fields"
+                });
+            }
+
+            // Validate routing number (9 digits for US/Canada)
+            if (bankAccount.routingNumber && bankAccount.routingNumber.length !== 9) {
+                return res.status(400).json({
+                    error: "Invalid routing number",
+                    message: "Routing number must be 9 digits"
+                });
+            }
+
+            // Validate account number (at least 4 digits)
+            if (bankAccount.accountNumber && bankAccount.accountNumber.length < 4) {
+                return res.status(400).json({
+                    error: "Invalid account number",
+                    message: "Please enter a valid account number"
+                });
+            }
+
+            // Build bank account object
+            updateData.bankAccount = {
+                accountHolderName: bankAccount.accountHolderName.trim(),
+                accountNumber: bankAccount.accountNumber.trim(),
+                routingNumber: bankAccount.routingNumber.trim(),
+                bankName: bankAccount.bankName.trim(),
+                accountType: bankAccount.accountType || 'checking',
+                last4: bankAccount.accountNumber.slice(-4), // Store last 4 for display
+                verified: false, // Admin must verify
+                addedAt: new Date(),
+            };
+
+            console.log("✅ Bank account prepared for save:", {
+                accountHolderName: updateData.bankAccount.accountHolderName,
+                bankName: updateData.bankAccount.bankName,
+                last4: updateData.bankAccount.last4,
+                accountType: updateData.bankAccount.accountType,
+            });
+        }
+
+        // ⭐ NEW: Handle ID Verification Update (nested object)
+        if (idVerification) {
+            console.log("🪪 ID Verification update received:", {
+                type: idVerification.type,
+                hasDocumentFront: !!idVerification.documentFront,
+                hasDocumentBack: !!idVerification.documentBack,
+                issueDate: idVerification.issueDate,
+                expiryDate: idVerification.expiryDate,
+            });
+
+            updateData.idVerification = {
+                type: idVerification.type,
+                documentFront: idVerification.documentFront,
+                documentBack: idVerification.documentBack || null,
+                issueDate: idVerification.issueDate ? new Date(idVerification.issueDate) : null,
+                expiryDate: idVerification.expiryDate ? new Date(idVerification.expiryDate) : null,
+                verified: idVerification.verified || false,
+                verifiedAt: idVerification.verified ? new Date() : null,
+            };
+
+            console.log("✅ ID Verification prepared for save");
+        }
+
+        // ⭐ NEW: Handle Insurance Update (nested object)
+        if (insurance) {
+            console.log("🛡️ Insurance update received:", {
+                hasInsurance: insurance.hasInsurance,
+                hasDocument: !!insurance.documentUrl,
+            });
+
+            updateData.insurance = {
+                hasInsurance: insurance.hasInsurance || false,
+                documentUrl: insurance.hasInsurance ? insurance.documentUrl : null,
+                expiryDate: insurance.expiryDate ? new Date(insurance.expiryDate) : null,
+                verified: insurance.verified || false,
+            };
+
+            console.log("✅ Insurance prepared for save");
         }
 
         // 🔹 Log document fields for debugging (profile updates)
         if (!isRoleSwitch) {
             console.log("Document fields in payload:", {
-                idType: updateData.idType,
-                passportUrl: updateData.passportUrl,
-                governmentIdFront: updateData.governmentIdFront,
-                governmentIdBack: updateData.governmentIdBack,
-                insuranceDocument: updateData.insuranceDocument,
+                idVerification: updateData.idVerification ? 'present' : 'not present',
+                insurance: updateData.insurance ? 'present' : 'not present',
+                bankAccount: updateData.bankAccount ? 'present' : 'not present',
                 profilePicture: updateData.profilePicture,
-                backgroundCheckConsent: updateData.backgroundCheckConsent,
             });
         }
 
-        // 🔹 CRITICAL: Preserve/validate roles (prevents [null] corruption) - only if not set by role switch
+        // 🔹 CRITICAL: Preserve/validate roles (prevents [null] corruption)
         if (!updateData.roles && !isRoleSwitch) {
-            // Don't touch roles if not provided—preserve existing (always include 'client')
             updateData.roles = [...new Set([...(user.roles || ['client']), 'client'])].filter(role =>
                 role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
             );
             console.log("Preserving roles (not in payload):", updateData.roles);
         }
 
-        // 🔹 Email uniqueness check (unchanged)
+        // 🔹 Email uniqueness check
         if (email && email !== user.email) {
             const existingEmail = await User.findOne({ email });
             if (existingEmail && existingEmail._id.toString() !== userId) {
@@ -2349,27 +2602,35 @@ export const updateProfile = async (req, res) => {
             }
         }
 
-        // 🔹 Add email/password to updateData (unchanged)
+        // 🔹 Add email/password to updateData
         if (email) updateData.email = email;
         if (password) {
             updateData.password = await bcrypt.hash(password, 10);
         }
 
-        // 🔹 Update with explicit $set (avoids schema resets)
+        // 🔹 Update with explicit $set
         let updatedUser = await User.findByIdAndUpdate(
             userId,
-            { $set: updateData },  // Only set explicit fields
+            { $set: updateData },
             { new: true, runValidators: true }
         ).select('-password');
 
-        // 🔹 NEW: After profile update (not role switch), check if tasker profile is now complete
-        if (!isRoleSwitch && (updateData.idType || updateData.passportUrl || updateData.governmentIdFront || updateData.governmentIdBack || updateData.issueDate || updateData.expiryDate || updateData.backgroundCheckConsent)) {
+        // 🔹 After profile update, check if tasker profile is now complete
+        if (!isRoleSwitch && (
+            updateData.idVerification ||
+            updateData.insurance ||
+            updateData.bankAccount ||
+            updateData.profilePicture ||
+            updateData.dob ||
+            updateData.about ||
+            updateData.yearsOfExperience ||
+            updateData.categories
+        )) {
             // Re-fetch to get latest fields
             updatedUser = await User.findById(userId).select('-password');
             const isComplete = isTaskerProfileComplete(updatedUser);
             if (isComplete && !updatedUser.taskerProfileCheck) {
                 console.log("Tasker profile now complete - updating flags and adding tasker role");
-                // Ensure both roles
                 const validRoles = [...new Set([...(updatedUser.roles || ['client']), 'client', 'tasker'])].filter(role =>
                     role && typeof role === 'string' && (role === 'client' || role === 'tasker' || role === 'admin')
                 );
@@ -2379,34 +2640,65 @@ export const updateProfile = async (req, res) => {
                         roles: validRoles
                     }
                 });
-                // Re-fetch updated user
                 updatedUser = await User.findById(userId).select('-password');
             }
         }
 
-        console.log("Post-update roles:", updatedUser.roles);  // Log after
+        console.log("Post-update roles:", updatedUser.roles);
         console.log("Post-update currentRole:", updatedUser.currentRole);
+
+        // ⭐ NEW: Log bank account status
+        if (updatedUser.bankAccount) {
+            console.log("Post-update bankAccount:", {
+                accountHolderName: updatedUser.bankAccount.accountHolderName,
+                bankName: updatedUser.bankAccount.bankName,
+                last4: updatedUser.bankAccount.last4,
+                verified: updatedUser.bankAccount.verified,
+            });
+        }
 
         // 🔹 Notification
         try {
-            const notificationTitle = isRoleSwitch
-                ? `Switched to ${newRole.charAt(0).toUpperCase() + newRole.slice(1)} Mode`
-                : "Profile Updated Successfully";
-            const notificationMessage = isRoleSwitch
-                ? `You have successfully switched to ${newRole} mode. Switch back anytime via the navbar.`
-                : "Your profile has been updated. If tasker requirements are met, you can now switch to Tasker mode.";
+            let notificationTitle, notificationMessage;
+
+            if (isRoleSwitch) {
+                notificationTitle = `Switched to ${newRole.charAt(0).toUpperCase() + newRole.slice(1)} Mode`;
+                notificationMessage = `You have successfully switched to ${newRole} mode. Switch back anytime via the navbar.`;
+            } else if (bankAccount) {
+                notificationTitle = "Bank Account Updated";
+                notificationMessage = "Your bank account information has been saved. An admin will verify it shortly.";
+            } else {
+                notificationTitle = "Profile Updated Successfully";
+                notificationMessage = "Your profile has been updated. If tasker requirements are met, you can now switch to Tasker mode.";
+            }
+
             await createNotification(
                 req.user?._id || userId,
                 notificationTitle,
                 notificationMessage,
-                isRoleSwitch ? "role-switch" : "profile-update"
+                isRoleSwitch ? "role-switch" : bankAccount ? "bank-account-update" : "profile-update"
             );
-            console.log("Notification created for", isRoleSwitch ? "role switch" : "profile update");
+            console.log("Notification created for", isRoleSwitch ? "role switch" : bankAccount ? "bank account update" : "profile update");
         } catch (notifErr) {
             console.error("Failed to create notification (non-blocking):", notifErr);
         }
 
-        return res.status(200).json({ message: "User updated successfully", user: updatedUser });
+        // ⭐ NEW: Sanitize bank account in response (hide full account number)
+        const responseUser = updatedUser.toObject();
+        if (responseUser.bankAccount && responseUser.bankAccount.accountNumber) {
+            responseUser.bankAccount = {
+                accountHolderName: responseUser.bankAccount.accountHolderName,
+                bankName: responseUser.bankAccount.bankName,
+                accountType: responseUser.bankAccount.accountType,
+                last4: responseUser.bankAccount.last4,
+                verified: responseUser.bankAccount.verified,
+                verifiedAt: responseUser.bankAccount.verifiedAt,
+                addedAt: responseUser.bankAccount.addedAt,
+                // ⚠️ Don't send full account/routing numbers back
+            };
+        }
+
+        return res.status(200).json({ message: "User updated successfully", user: responseUser });
     } catch (error) {
         console.error("Update user error:", error);
         return res.status(500).json({
@@ -2415,6 +2707,7 @@ export const updateProfile = async (req, res) => {
         });
     }
 };
+
 
 // 🔹 Helper: Check if tasker profile is complete (required fields for tasker)
 const isTaskerProfileComplete = (user) => {
